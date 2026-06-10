@@ -1,0 +1,65 @@
+{
+  "name": "forusin10-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "for us in 10 — private AI that runs entirely on your computer.",
+  "author": "for us in 10",
+  "repository": "https://github.com/OWNER/forusin10",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env NODE_ENV=development electron .\"",
+    "build": "vite build",
+    "start": "electron .",
+    "dist": "vite build && electron-builder --publish=never",
+    "dist:win": "vite build && electron-builder --win --publish=never",
+    "dist:mac": "vite build && electron-builder --mac --publish=never",
+    "dist:linux": "vite build && electron-builder --linux --publish=never",
+    "release": "vite build && electron-builder --publish=always"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.1.0",
+    "clsx": "^2.1.1",
+    "electron-updater": "^6.3.9",
+    "framer-motion": "^12.0.0",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0",
+    "tailwind-merge": "^3.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^4.0.0",
+    "vite": "^6.0.3",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.forusin10.app",
+    "productName": "for us in 10",
+    "directories": { "output": "dist-app" },
+    "files": ["dist/**/*", "electron/**/*"],
+    "publish": [
+      { "provider": "github", "owner": "OWNER", "repo": "forusin10" }
+    ],
+    "win": { "target": ["nsis"] },
+    "nsis": {
+      "oneClick": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.productivity"
+    },
+    "linux": { "target": ["AppImage"], "category": "Utility" }
+  }
+}
