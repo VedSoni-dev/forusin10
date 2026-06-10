@@ -4,7 +4,7 @@
   "private": true,
   "description": "for us in 10 — private AI that runs entirely on your computer.",
   "author": "for us in 10",
-  "repository": "https://github.com/OWNER/forusin10",
+  "repository": "https://github.com/VedSoni-dev/forusin10",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -48,7 +48,7 @@
     "directories": { "output": "dist-app" },
     "files": ["dist/**/*", "electron/**/*"],
     "publish": [
-      { "provider": "github", "owner": "OWNER", "repo": "forusin10" }
+      { "provider": "github", "owner": "VedSoni-dev", "repo": "forusin10" }
     ],
     "win": { "target": ["nsis"] },
     "nsis": {
