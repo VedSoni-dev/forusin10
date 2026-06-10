@@ -46,9 +46,10 @@
     "appId": "com.forusin10.app",
     "productName": "for us in 10",
     "directories": { "output": "dist-app" },
+    "artifactName": "for-us-in-10-${version}.${ext}",
     "files": ["dist/**/*", "electron/**/*"],
     "publish": [
-      { "provider": "github", "owner": "VedSoni-dev", "repo": "forusin10" }
+      { "provider": "generic", "url": "https://forusin10-site.vercel.app/updates" }
     ],
     "win": { "target": ["nsis"] },
     "nsis": {
