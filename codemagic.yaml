@@ -1,0 +1,47 @@
+# Codemagic CI — free cloud builds (not GitHub Actions).
+# Builds the macOS app on a real Mac in the cloud, since macOS apps can't be
+# built on Windows. Connect this repo at https://codemagic.io and run the
+# "macOS" workflow; download the .dmg from the build artifacts.
+workflows:
+  macos:
+    name: macOS build
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      node: 20
+    scripts:
+      - name: Install dependencies
+        script: npm ci
+      - name: Build renderer
+        script: npm run build
+      - name: Build macOS app (unsigned)
+        script: |
+          # Unsigned build — free. Users open via right-click → Open the first time.
+          # For auto-update + no Gatekeeper warning, add an Apple Developer cert later.
+          export CSC_IDENTITY_AUTO_DISCOVERY=false
+          npx electron-builder --mac dmg zip --publish never
+    artifacts:
+      - dist-app/*.dmg
+      - dist-app/*.zip
+      - dist-app/latest-mac.yml
+      - dist-app/*.blockmap
+
+  # Optional: build Windows here too if you'd rather not build locally.
+  # (Uses Codemagic Windows minutes.)
+  windows:
+    name: Windows build
+    instance_type: windows_x2
+    max_build_duration: 60
+    environment:
+      node: 20
+    scripts:
+      - name: Install dependencies
+        script: npm ci
+      - name: Build renderer
+        script: npm run build
+      - name: Build Windows installer
+        script: npx electron-builder --win nsis --publish never
+    artifacts:
+      - dist-app/*.exe
+      - dist-app/latest.yml
+      - dist-app/*.blockmap
