@@ -14,6 +14,8 @@ workflows:
         script: npm ci
       - name: Build renderer
         script: npm run build
+      - name: Download Ollama binary (bundled into the app)
+        script: node scripts/download-ollama.mjs
       - name: Build macOS app (unsigned)
         script: |
           # Unsigned build — free. Users open via right-click → Open the first time.

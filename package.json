@@ -11,9 +11,9 @@
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env NODE_ENV=development electron .\"",
     "build": "vite build",
     "start": "electron .",
-    "dist": "vite build && electron-builder --publish=never",
-    "dist:win": "vite build && electron-builder --win --publish=never",
-    "dist:mac": "vite build && electron-builder --mac --publish=never",
+    "dist": "node scripts/download-ollama.mjs && vite build && electron-builder --publish=never",
+    "dist:win": "node scripts/download-ollama.mjs && vite build && electron-builder --win --publish=never",
+    "dist:mac": "node scripts/download-ollama.mjs && vite build && electron-builder --mac --publish=never",
     "dist:linux": "vite build && electron-builder --linux --publish=never",
     "release": "vite build && electron-builder --publish=always"
   },
@@ -51,7 +51,12 @@
     "publish": [
       { "provider": "generic", "url": "https://localai-roan.vercel.app/updates" }
     ],
-    "win": { "target": ["nsis"] },
+    "win": {
+      "target": ["nsis"],
+      "extraResources": [
+        { "from": "resources/ollama/win/ollama.exe", "to": "ollama/ollama.exe" }
+      ]
+    },
     "nsis": {
       "oneClick": true,
       "createDesktopShortcut": true,
@@ -59,7 +64,10 @@
     },
     "mac": {
       "target": ["dmg", "zip"],
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "extraResources": [
+        { "from": "resources/ollama/mac/ollama", "to": "ollama/ollama" }
+      ]
     },
     "linux": { "target": ["AppImage"], "category": "Utility" }
   }

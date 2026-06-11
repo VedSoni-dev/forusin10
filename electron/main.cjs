@@ -1,8 +1,89 @@
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const memory = require("./memory.cjs");
+
+/* ─────────────────────────────────────────────
+   Bundled Ollama management
+   We ship the Ollama server binary inside the app package and start it
+   automatically on launch. Users never install anything manually.
+───────────────────────────────────────────── */
+let ollamaProcess = null;
+
+function getOllamaBinaryPath() {
+  const bin = process.platform === "win32" ? "ollama.exe" : "ollama";
+  if (app.isPackaged) {
+    // In production: electron-builder copies the binary into Resources/ollama/
+    return path.join(process.resourcesPath, "ollama", bin);
+  }
+  // Dev mode: fall back to a system-installed Ollama so local dev still works.
+  if (process.platform === "win32") {
+    const local = path.join(
+      process.env.LOCALAPPDATA || "",
+      "Programs", "Ollama", "ollama.exe"
+    );
+    if (fs.existsSync(local)) return local;
+    return "ollama"; // hope it's on PATH
+  }
+  return "/usr/local/bin/ollama";
+}
+
+async function isOllamaAlreadyRunning() {
+  try {
+    const r = await fetch(`${OLLAMA}/`, {
+      signal: AbortSignal.timeout(1200),
+    });
+    return r.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+async function startBundledOllama() {
+  // Don't start a second copy if Ollama is already up (e.g. system-level one).
+  if (await isOllamaAlreadyRunning()) {
+    console.log("[ollama] already running — using existing instance");
+    return;
+  }
+
+  const binPath = getOllamaBinaryPath();
+  if (!fs.existsSync(binPath)) {
+    // In dev mode without system Ollama the app will show the setup screen and
+    // wait — that's fine for development.
+    console.warn("[ollama] binary not found at", binPath);
+    return;
+  }
+
+  // Store models inside the app's userData folder so they survive uninstalls
+  // without cluttering the user's home directory.
+  const modelsDir = path.join(app.getPath("userData"), "models");
+  fs.mkdirSync(modelsDir, { recursive: true });
+
+  // Make sure the binary is executable (macOS unpacks it without the bit set).
+  if (process.platform !== "win32") {
+    try { fs.chmodSync(binPath, 0o755); } catch {}
+  }
+
+  console.log("[ollama] starting bundled binary:", binPath);
+  ollamaProcess = spawn(binPath, ["serve"], {
+    env: {
+      ...process.env,
+      OLLAMA_MODELS: modelsDir,
+      OLLAMA_HOST: "127.0.0.1:11434",
+    },
+    detached: false,
+    stdio: "ignore",
+    windowsHide: true, // no console window on Windows
+  });
+
+  ollamaProcess.on("error", (err) => console.error("[ollama] process error:", err));
+  ollamaProcess.on("exit", (code) => {
+    console.log("[ollama] exited with code", code);
+    ollamaProcess = null;
+  });
+}
 
 // No native menu bar (removes File / Edit / View / Window / Help).
 Menu.setApplicationMenu(null);
@@ -56,11 +137,22 @@ function createWindow() {
 
 app.whenReady().then(() => {
   memory.init(app.getPath("userData"));
+  // Start our bundled Ollama in the background — fire-and-forget so the window
+  // opens immediately while the binary is booting up.
+  startBundledOllama().catch((e) => console.error("[ollama] startup error:", e));
   createWindow();
   setupAutoUpdate();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+// Kill the bundled Ollama process cleanly when the app quits.
+app.on("before-quit", () => {
+  if (ollamaProcess) {
+    ollamaProcess.kill();
+    ollamaProcess = null;
+  }
 });
 
 /* ─────────────────────────────────────────────
