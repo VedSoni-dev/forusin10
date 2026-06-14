@@ -49,7 +49,7 @@
     "artifactName": "for-us-in-10-${version}.${ext}",
     "files": ["dist/**/*", "electron/**/*"],
     "publish": [
-      { "provider": "generic", "url": "https://localai-roan.vercel.app/updates" }
+      { "provider": "github", "owner": "VedSoni-dev", "repo": "forusin10" }
     ],
     "win": {
       "target": ["nsis"],

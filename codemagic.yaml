@@ -1,7 +1,17 @@
-# Codemagic CI — free cloud builds (not GitHub Actions).
-# Builds the macOS app on a real Mac in the cloud, since macOS apps can't be
-# built on Windows. Connect this repo at https://codemagic.io and run the
-# "macOS" workflow; download the .dmg from the build artifacts.
+# Codemagic CI — the single build pipeline for this app (no GitHub Actions).
+# Builds installers on real cloud machines and publishes them to GitHub Releases,
+# which doubles as the auto-update feed (electron-updater + the `github` provider
+# in package.json). macOS apps can't be built on Windows, so each OS has its own
+# job — run whichever you need from https://codemagic.io.
+#
+# ── One-time setup (Codemagic UI → App settings → Environment variables) ──
+#   GH_TOKEN = a GitHub personal access token with `repo` scope, marked Secret.
+#              electron-builder uses it to upload the installers + update manifests
+#              (latest.yml / latest-mac.yml) to a GitHub Release.
+#
+# electron-builder creates/updates a DRAFT GitHub Release for the current version.
+# Run the macOS and Windows jobs (they append to the same draft), then publish the
+# draft on GitHub so existing apps pick up the auto-update.
 workflows:
   macos:
     name: macOS build
@@ -9,6 +19,12 @@ workflows:
     max_build_duration: 60
     environment:
       node: 20
+      vars:
+        # Unsigned for now (free). Mac users open via right-click → Open the first
+        # time, and Mac auto-update stays off until an Apple Developer cert is added.
+        # Add CSC_LINK + APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID as
+        # secrets and drop this line to enable signing + notarization + auto-update.
+        CSC_IDENTITY_AUTO_DISCOVERY: "false"
     scripts:
       - name: Install dependencies
         script: npm ci
@@ -16,20 +32,14 @@ workflows:
         script: npm run build
       - name: Download Ollama binary (bundled into the app)
         script: node scripts/download-ollama.mjs
-      - name: Build macOS app (unsigned)
-        script: |
-          # Unsigned build — free. Users open via right-click → Open the first time.
-          # For auto-update + no Gatekeeper warning, add an Apple Developer cert later.
-          export CSC_IDENTITY_AUTO_DISCOVERY=false
-          npx electron-builder --mac dmg zip --publish never
+      - name: Build & publish macOS app to GitHub Releases
+        script: npx electron-builder --mac dmg zip --publish always
     artifacts:
       - dist-app/*.dmg
       - dist-app/*.zip
       - dist-app/latest-mac.yml
       - dist-app/*.blockmap
 
-  # Optional: build Windows here too if you'd rather not build locally.
-  # (Uses Codemagic Windows minutes.)
   windows:
     name: Windows build
     instance_type: windows_x2
@@ -41,8 +51,12 @@ workflows:
         script: npm ci
       - name: Build renderer
         script: npm run build
-      - name: Build Windows installer
-        script: npx electron-builder --win nsis --publish never
+      - name: Download Ollama binary (bundled into the app)
+        script: node scripts/download-ollama.mjs
+      - name: Build & publish Windows installer to GitHub Releases
+        # Unsigned — the installer shows a SmartScreen warning ("More info → Run
+        # anyway") until a code-signing cert is added (e.g. Azure Trusted Signing).
+        script: npx electron-builder --win nsis --publish always
     artifacts:
       - dist-app/*.exe
       - dist-app/latest.yml
