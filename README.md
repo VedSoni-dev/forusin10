@@ -23,7 +23,7 @@ That's it. No accounts, no sign-ups, no subscriptions to chat.
 ## What it does
 
 - 💬 **Chat** like ChatGPT — writing, ideas, explanations, code.
-- 📎 **Attachments** — drop in documents or photos and ask about them.
+- 📎 **Attachments** — drop in PDFs, Word docs, text/code files or photos and ask about them.
 - 🔒 **Truly private** — runs locally; conversations are saved only on your device.
 - ✈️ **Works offline** — once set up, no internet needed.
 

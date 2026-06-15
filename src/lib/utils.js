@@ -21,6 +21,7 @@ const TEXT_EXT = [
 export function fileKind(name = "") {
   const ext = name.split(".").pop()?.toLowerCase() || "";
   if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) return "image";
+  if (["pdf", "docx"].includes(ext)) return "doc"; // binary docs we extract text from
   if (TEXT_EXT.includes(ext)) return "text";
   return "other";
 }
