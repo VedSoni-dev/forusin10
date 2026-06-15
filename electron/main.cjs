@@ -232,6 +232,56 @@ ipcMain.handle("connector:saveFile", async (_e, { suggestedName, content }) => {
   }
 });
 
+/* ── Ask your files: read readable text files from a folder the user picks ──
+   Runs entirely in the main process; the folder never leaves the device. Binary
+   docs (.pdf/.docx) are handled by the renderer's extractor when attached. */
+const READABLE_EXT = new Set([
+  ".txt", ".md", ".markdown", ".csv", ".json", ".js", ".jsx", ".ts", ".tsx",
+  ".py", ".java", ".c", ".cpp", ".cs", ".go", ".rs", ".rb", ".php", ".swift",
+  ".html", ".css", ".scss", ".xml", ".yaml", ".yml", ".sql", ".sh", ".log",
+]);
+const MAX_FILES = 60;
+const MAX_FILE_BYTES = 200 * 1024; // 200 KB per file
+const MAX_TOTAL_BYTES = 4 * 1024 * 1024; // 4 MB total
+
+function walkReadable(dir, out, total, depth) {
+  if (depth > 4 || out.length >= MAX_FILES || total.bytes >= MAX_TOTAL_BYTES) return;
+  let entries = [];
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const ent of entries) {
+    if (out.length >= MAX_FILES || total.bytes >= MAX_TOTAL_BYTES) break;
+    if (ent.name.startsWith(".") || ent.name === "node_modules") continue;
+    const full = path.join(dir, ent.name);
+    if (ent.isDirectory()) {
+      walkReadable(full, out, total, depth + 1);
+    } else if (ent.isFile()) {
+      if (!READABLE_EXT.has(path.extname(ent.name).toLowerCase())) continue;
+      let stat;
+      try { stat = fs.statSync(full); } catch { continue; }
+      if (stat.size === 0 || stat.size > MAX_FILE_BYTES) continue;
+      let content;
+      try { content = fs.readFileSync(full, "utf8"); } catch { continue; }
+      total.bytes += stat.size;
+      out.push({ name: ent.name, content });
+    }
+  }
+}
+
+ipcMain.handle("files:readFolder", async () => {
+  try {
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      properties: ["openDirectory"],
+    });
+    if (canceled || !filePaths?.[0]) return { ok: false, canceled: true };
+    const root = filePaths[0];
+    const out = [];
+    walkReadable(root, out, { bytes: 0 }, 0);
+    return { ok: true, folder: path.basename(root), files: out };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
 /* ── Memory IPC: let the UI read & manage what the AI remembers ── */
 ipcMain.handle("memory:get", () => memory.getFacts());
 ipcMain.handle("memory:delete", (_e, id) => {

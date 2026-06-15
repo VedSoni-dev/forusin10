@@ -73,6 +73,11 @@ contextBridge.exposeInMainWorld("localai", {
     },
   },
 
+  // Ask your files — pick a local folder; its readable text is read on-device
+  files: {
+    readFolder: () => ipcRenderer.invoke("files:readFolder"),
+  },
+
   // Connectors — user-initiated "send this reply out"
   connectors: {
     webhook: (payload) => ipcRenderer.invoke("connector:webhook", payload),

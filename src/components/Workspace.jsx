@@ -1,6 +1,6 @@
-import { FolderOpen, Plus, Settings2, FileText, ArrowRight } from "lucide-react";
+import { FolderOpen, Plus, Settings2, FileText, ArrowRight, FolderSearch } from "lucide-react";
 
-export default function Workspace({ projects = [], onNewProject, onOpenSettings, onEnterProject }) {
+export default function Workspace({ projects = [], onNewProject, onOpenSettings, onEnterProject, onLinkFolder }) {
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-4xl mx-auto px-8 pt-12 pb-12">
@@ -66,6 +66,13 @@ export default function Workspace({ projects = [], onNewProject, onOpenSettings,
                     <FileText size={13} /> {p.files?.length || 0} file{p.files?.length === 1 ? "" : "s"}
                   </span>
                   <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => onLinkFolder?.(p.id)}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-[var(--color-ink-faint)] hover:bg-[var(--color-brand-soft)] hover:text-[var(--color-brand-deep)] transition-all"
+                      title="Add a folder of files"
+                    >
+                      <FolderSearch size={15} />
+                    </button>
                     <button
                       onClick={() => onOpenSettings(p.id)}
                       className="w-7 h-7 rounded-lg flex items-center justify-center text-[var(--color-ink-faint)] hover:bg-[var(--color-paper-2)] hover:text-[var(--color-ink-soft)] transition-all"

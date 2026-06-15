@@ -23,6 +23,9 @@ export default function Chat({
   searching,
   webSearchOn,
   onToggleWebSearch,
+  offline,
+  mode,
+  onMode,
   templates = [],
   onUseTemplate,
   onOpenTemplates,
@@ -187,6 +190,9 @@ export default function Chat({
         seed={composerSeed}
         webSearchOn={webSearchOn}
         onToggleWebSearch={onToggleWebSearch}
+        offline={offline}
+        mode={mode}
+        onMode={onMode}
       />
     </main>
   );

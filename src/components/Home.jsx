@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowUp, Globe, FolderOpen, Workflow, Brain, Sparkles,
-  MessageSquareText, ArrowRight, Clock,
+  MessageSquareText, ArrowRight, Clock, ShieldCheck, Plane,
 } from "lucide-react";
 
 const QUICK = [
@@ -35,6 +35,8 @@ export default function Home({
   memoryCount = 0,
   webSearchOn,
   onToggleWebSearch,
+  offline,
+  onOpenPrivacy,
 }) {
   const [text, setText] = useState("");
 
@@ -74,10 +76,23 @@ export default function Home({
       <div className="max-w-3xl mx-auto px-8 pt-16 pb-12">
         {/* Greeting */}
         <motion.div className="reveal" style={{ "--d": "0ms" }}>
-          <div className="inline-flex items-center gap-2 text-[0.72rem] font-medium text-[var(--color-brand-deep)] bg-[var(--color-brand-soft)] rounded-full px-3 py-1 mb-5">
-            <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-brand)]" style={{ animation: "breathe 2.4s ease-in-out infinite" }} />
-            Private · running on your device
-          </div>
+          <button
+            onClick={onOpenPrivacy}
+            className="group inline-flex items-center gap-2 text-[0.72rem] font-medium text-[var(--color-brand-deep)] bg-[var(--color-brand-soft)] rounded-full px-3 py-1 mb-5 hover:brightness-95 transition-all"
+            title="See what leaves your device"
+          >
+            {offline ? (
+              <>
+                <Plane size={12} /> Offline mode · airtight
+              </>
+            ) : (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-brand)]" style={{ animation: "breathe 2.4s ease-in-out infinite" }} />
+                Private · running on your device
+              </>
+            )}
+            <ShieldCheck size={12} className="opacity-50 group-hover:opacity-100 transition-opacity" />
+          </button>
           <h1 className="font-display text-[2.7rem] leading-[1.05] text-[var(--color-ink)]">
             {greeting()}.
           </h1>
@@ -107,17 +122,27 @@ export default function Home({
               className="w-full resize-none bg-transparent outline-none text-[1.02rem] leading-relaxed text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)] px-3 pt-2.5 pb-1 font-light"
             />
             <div className="flex items-center justify-between px-1.5 pb-0.5">
-              <button
-                onClick={onToggleWebSearch}
-                className={`flex items-center gap-1.5 h-8 rounded-full px-3 text-[0.8rem] font-medium transition-all ${
-                  webSearchOn
-                    ? "bg-[var(--color-brand-soft)] text-[var(--color-brand-deep)]"
-                    : "text-[var(--color-ink-faint)] hover:text-[var(--color-ink-soft)] hover:bg-[var(--color-paper-2)]"
-                }`}
-                title={webSearchOn ? "Web search on — recent questions get looked up online" : "Turn on web search for recent info"}
-              >
-                <Globe size={15} /> {webSearchOn ? "Web search on" : "Web search"}
-              </button>
+              {offline ? (
+                <button
+                  onClick={onOpenPrivacy}
+                  className="flex items-center gap-1.5 h-8 rounded-full px-3 text-[0.8rem] font-medium text-[var(--color-brand-deep)] bg-[var(--color-brand-soft)]"
+                  title="Offline Mode is on — web search is disabled"
+                >
+                  <Plane size={15} /> Offline
+                </button>
+              ) : (
+                <button
+                  onClick={onToggleWebSearch}
+                  className={`flex items-center gap-1.5 h-8 rounded-full px-3 text-[0.8rem] font-medium transition-all ${
+                    webSearchOn
+                      ? "bg-[var(--color-brand-soft)] text-[var(--color-brand-deep)]"
+                      : "text-[var(--color-ink-faint)] hover:text-[var(--color-ink-soft)] hover:bg-[var(--color-paper-2)]"
+                  }`}
+                  title={webSearchOn ? "Web search on — recent questions get looked up online" : "Turn on web search for recent info"}
+                >
+                  <Globe size={15} /> {webSearchOn ? "Web search on" : "Web search"}
+                </button>
+              )}
               <button
                 onClick={submit}
                 disabled={!text.trim()}
