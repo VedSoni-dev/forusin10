@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld("localai", {
   // Chat streaming
   chat: (payload) => ipcRenderer.invoke("chat:start", payload),
   stop: (id) => ipcRenderer.send("chat:stop", id),
+  onSearching: (cb) => {
+    const fn = (_e, data) => cb(data);
+    ipcRenderer.on("chat:searching", fn);
+    return () => ipcRenderer.removeListener("chat:searching", fn);
+  },
   onToken: (cb) => {
     const fn = (_e, data) => cb(data);
     ipcRenderer.on("chat:token", fn);
