@@ -1,11 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Paperclip, ArrowUp, Square, X, FileText, Loader2, Zap } from "lucide-react";
+import { Paperclip, ArrowUp, Square, X, FileText, Loader2, Zap, Globe } from "lucide-react";
 import { fileKind, prettyBytes } from "../lib/utils.js";
+import { extractDocText } from "../lib/extract.js";
 
 const MAX_TEXT_CHARS = 60000;
 let attachSeq = 0;
 
-export default function Composer({ streaming, onSend, onStop, onOpenTemplates, seed }) {
+export default function Composer({ streaming, onSend, onStop, onOpenTemplates, seed, webSearchOn, onToggleWebSearch }) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [dragging, setDragging] = useState(false);
@@ -63,6 +64,27 @@ export default function Composer({ streaming, onSend, onStop, onOpenTemplates, s
         setAttachments((prev) =>
           prev.map((a) => (a.id === id ? { ...a, content, loading: false } : a))
         );
+      } else if (kind === "doc") {
+        // Binary doc (.pdf/.docx): show the chip immediately, extract text in the
+        // background, then store it as a normal text attachment. If extraction
+        // fails, fall back to "other" so the model is told it couldn't be read.
+        setAttachments((prev) => [
+          ...prev,
+          { id, kind: "text", name: file.name, size: file.size, loading: true },
+        ]);
+        try {
+          let content = await extractDocText(file);
+          if (!content) throw new Error("No text found in document");
+          if (content.length > MAX_TEXT_CHARS)
+            content = content.slice(0, MAX_TEXT_CHARS) + "\n…(truncated)";
+          setAttachments((prev) =>
+            prev.map((a) => (a.id === id ? { ...a, content, loading: false } : a))
+          );
+        } catch {
+          setAttachments((prev) =>
+            prev.map((a) => (a.id === id ? { ...a, kind: "other", loading: false } : a))
+          );
+        }
       } else {
         setAttachments((prev) => [
           ...prev,
@@ -213,6 +235,24 @@ export default function Composer({ streaming, onSend, onStop, onOpenTemplates, s
               <Zap size={18} />
             </button>
           )}
+          {onToggleWebSearch && (
+            <button
+              onClick={onToggleWebSearch}
+              className={`flex-shrink-0 h-9 rounded-full flex items-center gap-1.5 px-2.5 transition-all ${
+                webSearchOn
+                  ? "bg-emerald-50 text-emerald-600"
+                  : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+              }`}
+              title={
+                webSearchOn
+                  ? "Web search is on — recent questions are looked up online (queries leave your device). Click to turn off."
+                  : "Web search is off. Click to let it look up recent info online (your search query will be sent to the web)."
+              }
+            >
+              <Globe size={18} />
+              {webSearchOn && <span className="text-[0.78rem] font-normal pr-0.5">Search</span>}
+            </button>
+          )}
           <input
             ref={fileRef}
             type="file"
@@ -263,7 +303,9 @@ export default function Composer({ streaming, onSend, onStop, onOpenTemplates, s
         </div>
       </div>
       <p className="text-center text-[0.7rem] text-slate-300 font-light mt-2.5">
-        Private &amp; offline · your words never leave this device
+        {webSearchOn
+          ? "Private chat · runs on your device · web search sends your query online when needed"
+          : "Private & offline · your words never leave this device"}
       </p>
     </div>
   );

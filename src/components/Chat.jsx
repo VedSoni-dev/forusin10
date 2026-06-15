@@ -1,6 +1,6 @@
 import { useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Leaf, PenLine, Code2, Lightbulb, BookOpen, Folder, Settings2, FileText, Zap } from "lucide-react";
+import { Leaf, PenLine, Code2, Lightbulb, BookOpen, Folder, Settings2, FileText, Zap, Globe } from "lucide-react";
 import Message from "./Message.jsx";
 import Composer from "./Composer.jsx";
 
@@ -20,6 +20,9 @@ export default function Chat({
   project,
   onProjectSettings,
   usingFiles,
+  searching,
+  webSearchOn,
+  onToggleWebSearch,
   templates = [],
   onUseTemplate,
   onOpenTemplates,
@@ -152,6 +155,16 @@ export default function Chat({
                 suggestedConnector={getSuggestedConnector?.(m)}
               />
             ))}
+            {streaming && searching && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex items-center gap-2 text-[0.78rem] font-light text-emerald-600 pl-[42px]"
+              >
+                <Globe size={12} className="animate-pulse" />
+                Searching the web…
+              </motion.div>
+            )}
             {streaming && usingFiles && (
               <motion.div
                 initial={{ opacity: 0 }}
@@ -172,6 +185,8 @@ export default function Chat({
         onStop={onStop}
         onOpenTemplates={onOpenTemplates}
         seed={composerSeed}
+        webSearchOn={webSearchOn}
+        onToggleWebSearch={onToggleWebSearch}
       />
     </main>
   );

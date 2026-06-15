@@ -13,6 +13,7 @@ const STORAGE_KEY = "fui10.conversations.v1";
 const PROJECTS_KEY = "fui10.projects.v1";
 const TEMPLATES_KEY = "fui10.templates.v1";
 const CONNECTORS_KEY = "fui10.connectors.v1";
+const WEBSEARCH_KEY = "fui10.websearch.v1";
 
 // Starter templates so it's useful on day one. {{input}} is where the user types.
 const DEFAULT_TEMPLATES = [
@@ -101,7 +102,7 @@ function buildApiMessages(messages, project, queryText = "") {
       } else if (a.kind === "image" && a.dataUrl) {
         images.push(a.dataUrl.split(",")[1]); // strip data: prefix
       } else if (a.kind === "other") {
-        content += `\n\n(The user attached a file named "${a.name}" that can't be read as text.)`;
+        content += `\n\n(The user attached "${a.name}", but its text couldn't be extracted, so you can't see what's inside. Let them know.)`;
       }
     }
     const msg = { role: "user", content };
@@ -124,6 +125,17 @@ export default function App() {
   const [activeProjectId, setActiveProjectId] = useState(null);
   const [settingsProjectId, setSettingsProjectId] = useState(null);
   const [usingFiles, setUsingFiles] = useState(false); // "answering from your files" cue
+  const [searching, setSearching] = useState(false); // "looking it up on the web" cue
+  // Web search: when on, fresh questions are answered using a quick web lookup.
+  // Off by default keeps the "nothing leaves your device" promise literally true;
+  // toggling it on is the user explicitly opting in to send search queries out.
+  const [webSearchOn, setWebSearchOn] = useState(() => {
+    try {
+      return localStorage.getItem(WEBSEARCH_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
 
   // Templates / workflows
   const [templates, setTemplates] = useState(loadTemplates);
@@ -176,6 +188,13 @@ export default function App() {
       localStorage.setItem(CONNECTORS_KEY, JSON.stringify(connectors));
     } catch {}
   }, [connectors]);
+
+  // Persist the web-search opt-in
+  useEffect(() => {
+    try {
+      localStorage.setItem(WEBSEARCH_KEY, String(webSearchOn));
+    } catch {}
+  }, [webSearchOn]);
 
   /* ── Template handlers ── */
   function useTemplate(t) {
@@ -276,8 +295,13 @@ export default function App() {
   // Wire up streaming listeners once
   useEffect(() => {
     if (!window.localai) return;
+    const offSearching = window.localai.onSearching(({ id }) => {
+      if (id !== streamRef.current.reqId) return;
+      setSearching(true);
+    });
     const offToken = window.localai.onToken(({ id, token }) => {
       if (id !== streamRef.current.reqId) return;
+      setSearching(false); // first answer token arrived → done searching
       const { convId, msgId } = streamRef.current;
       setConversations((prev) =>
         prev.map((c) =>
@@ -296,6 +320,7 @@ export default function App() {
       if (id !== streamRef.current.reqId) return;
       setStreaming(false);
       setUsingFiles(false);
+      setSearching(false);
       streamRef.current = { convId: null, msgId: null, reqId: null };
     };
     const offDone = window.localai.onDone(finish);
@@ -324,9 +349,11 @@ export default function App() {
       );
       setStreaming(false);
       setUsingFiles(false);
+      setSearching(false);
       streamRef.current = { convId: null, msgId: null, reqId: null };
     });
     return () => {
+      offSearching?.();
       offToken?.();
       offDone?.();
       offErr?.();
@@ -468,6 +495,7 @@ export default function App() {
       id: reqId,
       model, // main process upgrades to a vision model when photos are present
       messages: buildApiMessages(baseMessages, chatProject, trimmed),
+      web: webSearchOn,
     });
   }
 
@@ -475,6 +503,7 @@ export default function App() {
     if (streamRef.current.reqId) window.localai?.stop(streamRef.current.reqId);
     setStreaming(false);
     setUsingFiles(false);
+    setSearching(false);
   }
 
   // Re-run the AI's answer using the conversation up to (but not including) it.
@@ -511,6 +540,7 @@ export default function App() {
       id: reqId,
       model, // main process upgrades to a vision model when photos are present
       messages: buildApiMessages(history, proj, lastQuery),
+      web: webSearchOn,
     });
   }
 
@@ -560,6 +590,9 @@ export default function App() {
           project={activeProjectId ? activeProject : null}
           onProjectSettings={() => setSettingsProjectId(activeProjectId)}
           usingFiles={usingFiles}
+          searching={searching}
+          webSearchOn={webSearchOn}
+          onToggleWebSearch={() => setWebSearchOn((v) => !v)}
           templates={templates}
           onUseTemplate={useTemplate}
           onOpenTemplates={() => setTemplatesOpen(true)}

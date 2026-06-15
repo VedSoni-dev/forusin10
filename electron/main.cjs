@@ -443,9 +443,117 @@ async function learnInBackground(model, userText, assistantText) {
 }
 
 /* ─────────────────────────────────────────────
+   Web search "tool" (orchestrated — the model can't call tools natively)
+   A tiny planner step decides whether a question needs fresh info; if so we
+   fetch results from DuckDuckGo here in the main process (no API key, no CORS)
+   and feed them back into the answer. Inference stays local — only the search
+   query itself leaves the device, and only when a question needs current info.
+───────────────────────────────────────────── */
+const SEARCH_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+
+function stripHtml(s = "") {
+  return s
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// DuckDuckGo wraps each result as //duckduckgo.com/l/?uddg=<encoded real url>.
+function ddgRealUrl(href = "") {
+  const m = href.match(/[?&]uddg=([^&]+)/);
+  if (m) { try { return decodeURIComponent(m[1]); } catch { return ""; } }
+  return href.startsWith("http") ? href : "";
+}
+
+function domainOf(url = "") {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
+}
+
+// Fetch the top web results for a query and format them for the model.
+async function webSearch(query, max = 5) {
+  try {
+    const res = await fetch(
+      "https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query),
+      { headers: { "User-Agent": SEARCH_UA }, signal: AbortSignal.timeout(15000) }
+    );
+    if (!res.ok) return null;
+    const html = await res.text();
+    const titles = [...html.matchAll(/class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)];
+    const snippets = [...html.matchAll(/class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g)].map((m) => stripHtml(m[1]));
+    const items = [];
+    for (let i = 0; i < titles.length && items.length < max; i++) {
+      const title = stripHtml(titles[i][2]);
+      if (!title) continue;
+      const url = ddgRealUrl(titles[i][1]);
+      items.push({ title, url, snippet: snippets[i] || "" });
+    }
+    if (!items.length) return null;
+    return items
+      .map((it, i) => `[${i + 1}] ${it.title}${it.url ? ` — ${domainOf(it.url)}` : ""}\n${it.snippet}`)
+      .join("\n\n")
+      .slice(0, 4000);
+  } catch {
+    return null;
+  }
+}
+
+const PLANNER_PROMPT =
+  "Classify whether answering the user's message requires looking up current, " +
+  "real-time, or recent information from the web — news, prices, weather, sports " +
+  "scores, schedules, or any 'latest'/'current' facts that change over time. " +
+  "Creative writing, coding, math, explanations, and general knowledge do NOT " +
+  "require it. Set needs_search accordingly, and if true give a short web query.";
+
+// A JSON schema forces a real boolean — a small model ignores free-text "NONE".
+const PLANNER_SCHEMA = {
+  type: "object",
+  properties: { needs_search: { type: "boolean" }, query: { type: "string" } },
+  required: ["needs_search", "query"],
+};
+
+// Cheap pre-step: ask the model whether this turn needs a search, and for what.
+async function planSearch(model, messages) {
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const q = (lastUser?.content || "").trim();
+  if (!q) return null;
+  try {
+    const res = await fetch(`${OLLAMA}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        format: PLANNER_SCHEMA,
+        options: { temperature: 0, num_predict: 80 },
+        messages: [
+          { role: "system", content: PLANNER_PROMPT },
+          { role: "user", content: q },
+        ],
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    let parsed;
+    try { parsed = JSON.parse(data.message?.content || "{}"); } catch { return null; }
+    if (!parsed.needs_search) return null;
+    return (parsed.query || q).trim().slice(0, 200) || null;
+  } catch {
+    return null;
+  }
+}
+
+/* ─────────────────────────────────────────────
    Chat — stream tokens back to the renderer
 ───────────────────────────────────────────── */
-ipcMain.handle("chat:start", async (_e, { id, model, messages }) => {
+ipcMain.handle("chat:start", async (_e, { id, model, messages, web }) => {
   const controller = new AbortController();
   controllers.set(id, controller);
 
@@ -471,6 +579,25 @@ ipcMain.handle("chat:start", async (_e, { id, model, messages }) => {
               "\n\n(The user attached an image, but no photo-reading AI is " +
               "installed yet, so you can't see it. Kindly let them know.)";
           }
+        }
+      }
+    }
+
+    // ── Agentic web search: if this turn needs fresh info, fetch it silently ──
+    // Only when the user has opted in, and not for image turns (those are about
+    // the photo). This is the one path where a query leaves the device.
+    if (web && !wantsVision && !controller.signal.aborted) {
+      const query = await planSearch(useModel, messages);
+      if (query && !controller.signal.aborted) {
+        win?.webContents.send("chat:searching", { id, query });
+        const results = await webSearch(query);
+        if (results) {
+          const today = new Date().toISOString().slice(0, 10);
+          const block =
+            `\n\nLive web search results for "${query}" (retrieved ${today}). ` +
+            `Use these to answer the user's question, and mention that you looked it up:\n${results}`;
+          if (messages[0]?.role === "system") messages[0].content += block;
+          else messages.unshift({ role: "system", content: block.trimStart() });
         }
       }
     }
