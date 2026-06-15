@@ -3,6 +3,11 @@ import Onboarding from "./components/Onboarding.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import Chat from "./components/Chat.jsx";
 import TitleBar from "./components/TitleBar.jsx";
+import NavRail from "./components/NavRail.jsx";
+import Home from "./components/Home.jsx";
+import Brain from "./components/Brain.jsx";
+import Workspace from "./components/Workspace.jsx";
+import Automations from "./components/Automations.jsx";
 import ProjectPanel from "./components/ProjectPanel.jsx";
 import TemplatesPanel from "./components/TemplatesPanel.jsx";
 import ConnectorsPanel from "./components/ConnectorsPanel.jsx";
@@ -114,6 +119,8 @@ function buildApiMessages(messages, project, queryText = "") {
 
 export default function App() {
   const [screen, setScreen] = useState("loading"); // loading | onboarding | ready
+  const [section, setSection] = useState("home"); // home | chat | workspace | automations | brain
+  const [facts, setFacts] = useState([]); // the visible "Brain" — memory the AI builds
   const [model, setModel] = useState("forusin10:core");
   const [visionModel, setVisionModel] = useState(null);
   const [conversations, setConversations] = useState(loadConversations);
@@ -154,9 +161,16 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }
 
-  // The memory "brain" runs entirely in the background (main process):
-  // it learns, reinforces, forgets, and compacts to keep answers sharp.
-  // There is intentionally no user-facing memory UI.
+  // The memory "brain" learns in the background (main process). We surface it in
+  // the Brain section: load it once, then keep it live as new facts are learned.
+  useEffect(() => {
+    if (!window.localai?.memory) return;
+    window.localai.memory.get().then(setFacts).catch(() => {});
+    const off = window.localai.memory.onUpdated?.(({ facts }) => {
+      if (facts) setFacts(facts);
+    });
+    return () => off?.();
+  }, []);
 
   const streamRef = useRef({ convId: null, msgId: null, reqId: null });
   const pendingTemplateRef = useRef(null); // template that seeded the next message
@@ -374,11 +388,41 @@ export default function App() {
 
   function newChat() {
     setActiveId(null);
+    setSection("chat");
   }
 
   function deleteChat(id) {
     setConversations((prev) => prev.filter((c) => c.id !== id));
     if (activeId === id) setActiveId(null);
+  }
+
+  /* ── Section navigation handlers ── */
+  function askFromHome(text) {
+    setSection("chat");
+    setActiveId(null);
+    sendMessage(text, []);
+  }
+  function openConversation(id) {
+    setActiveId(id);
+    setSection("chat");
+  }
+  function enterProject(id) {
+    setActiveProjectId(id);
+    setActiveId(null);
+    setSection("chat");
+  }
+  function runTemplateFromSection(t) {
+    useTemplate(t);
+    setSection("chat");
+  }
+  function forgetFact(id) {
+    window.localai?.memory?.delete(id).then(setFacts).catch(() => {});
+  }
+  function clearBrain() {
+    window.localai?.memory?.clear().then(setFacts).catch(() => {});
+  }
+  function upgradeBrain() {
+    showToast("Pro Brain — a bigger on-device model — is coming soon.");
   }
 
   /* ── Project handlers ── */
@@ -564,45 +608,94 @@ export default function App() {
     );
   } else {
     content = (
-      <div className="h-full flex bg-white text-slate-900 overflow-hidden">
-        <Sidebar
-          conversations={visibleConversations}
-          activeId={activeId}
-          onSelect={setActiveId}
-          onNew={newChat}
-          onDelete={deleteChat}
-          projects={projects}
-          activeProjectId={activeProjectId}
-          onSelectProject={(pid) => {
-            setActiveProjectId(pid);
-            setActiveId(null);
-          }}
-          onNewProject={createProject}
-          onProjectSettings={setSettingsProjectId}
-          onOpenSharing={() => setConnectorsOpen(true)}
+      <div className="h-full flex text-[var(--color-ink)] overflow-hidden">
+        <NavRail
+          section={section}
+          onSection={setSection}
+          brainTier="Core"
+          onUpgradeBrain={upgradeBrain}
         />
-        <Chat
-          conversation={activeConv}
-          streaming={streaming}
-          onSend={sendMessage}
-          onStop={stop}
-          onRegenerate={regenerate}
-          project={activeProjectId ? activeProject : null}
-          onProjectSettings={() => setSettingsProjectId(activeProjectId)}
-          usingFiles={usingFiles}
-          searching={searching}
-          webSearchOn={webSearchOn}
-          onToggleWebSearch={() => setWebSearchOn((v) => !v)}
-          templates={templates}
-          onUseTemplate={useTemplate}
-          onOpenTemplates={() => setTemplatesOpen(true)}
-          composerSeed={composerSeed}
-          connectors={connectors}
-          onSaveFile={saveReplyToFile}
-          onSendWebhook={sendReplyToWebhook}
-          onManageConnectors={() => setConnectorsOpen(true)}
-          getSuggestedConnector={suggestedConnectorFor}
-        />
+        {section === "chat" ? (
+          <>
+            <Sidebar
+              conversations={visibleConversations}
+              activeId={activeId}
+              onSelect={setActiveId}
+              onNew={newChat}
+              onDelete={deleteChat}
+              projects={projects}
+              activeProjectId={activeProjectId}
+              onSelectProject={(pid) => {
+                setActiveProjectId(pid);
+                setActiveId(null);
+              }}
+              onNewProject={createProject}
+              onProjectSettings={setSettingsProjectId}
+              onOpenSharing={() => setConnectorsOpen(true)}
+            />
+            <Chat
+              conversation={activeConv}
+              streaming={streaming}
+              onSend={sendMessage}
+              onStop={stop}
+              onRegenerate={regenerate}
+              project={activeProjectId ? activeProject : null}
+              onProjectSettings={() => setSettingsProjectId(activeProjectId)}
+              usingFiles={usingFiles}
+              searching={searching}
+              webSearchOn={webSearchOn}
+              onToggleWebSearch={() => setWebSearchOn((v) => !v)}
+              templates={templates}
+              onUseTemplate={useTemplate}
+              onOpenTemplates={() => setTemplatesOpen(true)}
+              composerSeed={composerSeed}
+              connectors={connectors}
+              onSaveFile={saveReplyToFile}
+              onSendWebhook={sendReplyToWebhook}
+              onManageConnectors={() => setConnectorsOpen(true)}
+              getSuggestedConnector={suggestedConnectorFor}
+            />
+          </>
+        ) : (
+          <div className="flex-1 min-w-0">
+            {section === "home" && (
+              <Home
+                onAsk={askFromHome}
+                onSection={setSection}
+                recent={conversations}
+                onOpenConversation={openConversation}
+                memoryCount={facts.length}
+                webSearchOn={webSearchOn}
+                onToggleWebSearch={() => setWebSearchOn((v) => !v)}
+              />
+            )}
+            {section === "workspace" && (
+              <Workspace
+                projects={projects}
+                onNewProject={createProject}
+                onOpenSettings={setSettingsProjectId}
+                onEnterProject={enterProject}
+              />
+            )}
+            {section === "automations" && (
+              <Automations
+                templates={templates}
+                connectors={connectors}
+                onRunTemplate={runTemplateFromSection}
+                onEditTemplates={() => setTemplatesOpen(true)}
+                onManageConnectors={() => setConnectorsOpen(true)}
+              />
+            )}
+            {section === "brain" && (
+              <Brain
+                facts={facts}
+                onDelete={forgetFact}
+                onClear={clearBrain}
+                onUpgradeBrain={upgradeBrain}
+              />
+            )}
+          </div>
+        )}
       </div>
     );
   }
