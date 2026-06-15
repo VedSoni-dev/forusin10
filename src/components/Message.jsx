@@ -1,11 +1,23 @@
 import { memo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import {
   Leaf, FileText, ImageIcon, Copy, Check, RotateCcw,
   Send, Download, Webhook, Plus,
 } from "lucide-react";
 import { cn } from "../lib/utils.js";
+
+// Models emit LaTeX with \[…\] (block) and \(…\) delimiters, but markdown eats
+// the backslash before the bracket, so the math shows up as raw text. Convert
+// those to the $$…$$ / $…$ that remark-math understands, before markdown runs.
+function mathify(src = "") {
+  return src
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, x) => `\n\n$$\n${x.trim()}\n$$\n\n`)
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, x) => `$${x.trim()}$`);
+}
 
 function MessageActions({
   content,
@@ -195,8 +207,11 @@ function Message({
                 message.error && "text-slate-500"
               )}
             >
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {message.content}
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[[rehypeKatex, { throwOnError: false }]]}
+              >
+                {mathify(message.content)}
               </ReactMarkdown>
             </div>
             {!streaming && !message.error && (
