@@ -1,12 +1,18 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Paperclip, ArrowUp, Square, X, FileText, Loader2, Zap, Globe } from "lucide-react";
+import { Paperclip, ArrowUp, Square, X, FileText, Loader2, Zap, Globe, Plane, Sparkles, Leaf, GraduationCap } from "lucide-react";
 import { fileKind, prettyBytes } from "../lib/utils.js";
 import { extractDocText } from "../lib/extract.js";
 
 const MAX_TEXT_CHARS = 60000;
 let attachSeq = 0;
 
-export default function Composer({ streaming, onSend, onStop, onOpenTemplates, seed, webSearchOn, onToggleWebSearch }) {
+const MODE_OPTIONS = [
+  { id: "assist", label: "Assist", icon: Sparkles },
+  { id: "reflect", label: "Reflect", icon: Leaf },
+  { id: "learn", label: "Learn", icon: GraduationCap },
+];
+
+export default function Composer({ streaming, onSend, onStop, onOpenTemplates, seed, webSearchOn, onToggleWebSearch, offline, mode = "assist", onMode }) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [dragging, setDragging] = useState(false);
@@ -140,6 +146,32 @@ export default function Composer({ streaming, onSend, onStop, onOpenTemplates, s
 
   return (
     <div className="px-4 pb-4 pt-1">
+      {onMode && (
+        <div className="max-w-3xl mx-auto flex justify-center mb-2.5">
+          <div className="inline-flex items-center gap-0.5 p-0.5 rounded-full bg-[var(--color-paper-2)] border border-[var(--color-line)]">
+            {MODE_OPTIONS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => onMode(id)}
+                className={`flex items-center gap-1.5 text-[0.78rem] font-medium rounded-full px-3 py-1.5 transition-all ${
+                  mode === id
+                    ? "bg-white text-[var(--color-ink)] shadow-soft"
+                    : "text-[var(--color-ink-faint)] hover:text-[var(--color-ink-soft)]"
+                }`}
+                title={
+                  id === "reflect"
+                    ? "A private thinking partner — helps you reflect"
+                    : id === "learn"
+                    ? "A Socratic tutor — builds your understanding"
+                    : "Everyday help"
+                }
+              >
+                <Icon size={13} className={mode === id ? "text-[var(--color-brand)]" : ""} /> {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -235,24 +267,33 @@ export default function Composer({ streaming, onSend, onStop, onOpenTemplates, s
               <Zap size={18} />
             </button>
           )}
-          {onToggleWebSearch && (
-            <button
-              onClick={onToggleWebSearch}
-              className={`flex-shrink-0 h-9 rounded-full flex items-center gap-1.5 px-2.5 transition-all ${
-                webSearchOn
-                  ? "bg-emerald-50 text-emerald-600"
-                  : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
-              }`}
-              title={
-                webSearchOn
-                  ? "Web search is on — recent questions are looked up online (queries leave your device). Click to turn off."
-                  : "Web search is off. Click to let it look up recent info online (your search query will be sent to the web)."
-              }
-            >
-              <Globe size={18} />
-              {webSearchOn && <span className="text-[0.78rem] font-normal pr-0.5">Search</span>}
-            </button>
-          )}
+          {onToggleWebSearch &&
+            (offline ? (
+              <span
+                className="flex-shrink-0 h-9 rounded-full flex items-center gap-1.5 px-2.5 bg-emerald-50 text-emerald-600"
+                title="Offline Mode is on — web search is disabled. Nothing leaves your device."
+              >
+                <Plane size={18} />
+                <span className="text-[0.78rem] font-normal pr-0.5">Offline</span>
+              </span>
+            ) : (
+              <button
+                onClick={onToggleWebSearch}
+                className={`flex-shrink-0 h-9 rounded-full flex items-center gap-1.5 px-2.5 transition-all ${
+                  webSearchOn
+                    ? "bg-emerald-50 text-emerald-600"
+                    : "text-slate-400 hover:text-slate-700 hover:bg-slate-50"
+                }`}
+                title={
+                  webSearchOn
+                    ? "Web search is on — recent questions are looked up online (queries leave your device). Click to turn off."
+                    : "Web search is off. Click to let it look up recent info online (your search query will be sent to the web)."
+                }
+              >
+                <Globe size={18} />
+                {webSearchOn && <span className="text-[0.78rem] font-normal pr-0.5">Search</span>}
+              </button>
+            ))}
           <input
             ref={fileRef}
             type="file"

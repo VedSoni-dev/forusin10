@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Home, MessagesSquare, FolderOpen, Workflow, Brain, Sparkles } from "lucide-react";
+import { Home, MessagesSquare, FolderOpen, Workflow, Brain, Sparkles, ShieldCheck, Plane } from "lucide-react";
 
 const ITEMS = [
   { id: "home", label: "Home", icon: Home },
@@ -9,7 +9,7 @@ const ITEMS = [
   { id: "brain", label: "Brain", icon: Brain },
 ];
 
-export default function NavRail({ section, onSection, brainTier = "Core", onUpgradeBrain }) {
+export default function NavRail({ section, onSection, brainTier = "Core", onUpgradeBrain, offline, onOpenPrivacy }) {
   return (
     <nav className="no-drag flex flex-col items-center w-[78px] flex-shrink-0 bg-[var(--color-paper-2)] border-r border-[var(--color-line)] py-3">
       {/* Brand mark */}
@@ -62,10 +62,28 @@ export default function NavRail({ section, onSection, brainTier = "Core", onUpgr
         })}
       </div>
 
+      {/* Privacy — the visible-trust affordance */}
+      <button
+        onClick={onOpenPrivacy}
+        className="no-drag mt-auto group flex flex-col items-center gap-1 px-2 py-2 rounded-xl hover:bg-white/60 transition-colors"
+        title={offline ? "Offline Mode is on — nothing can leave" : "Privacy — see what leaves your device"}
+      >
+        <span className="relative flex items-center justify-center w-9 h-9 rounded-full border border-[var(--color-line)] bg-white">
+          {offline ? (
+            <Plane size={16} className="text-[var(--color-brand-deep)]" />
+          ) : (
+            <ShieldCheck size={16} className="text-[var(--color-brand)]" />
+          )}
+        </span>
+        <span className="text-[0.6rem] font-medium text-[var(--color-ink-faint)] group-hover:text-[var(--color-ink-soft)]">
+          {offline ? "Offline" : "Private"}
+        </span>
+      </button>
+
       {/* Brain tier — the "Pro Brain" upgrade affordance */}
       <button
         onClick={onUpgradeBrain}
-        className="no-drag mt-auto group flex flex-col items-center gap-1 px-2 py-2 rounded-xl hover:bg-white/60 transition-colors"
+        className="no-drag group flex flex-col items-center gap-1 px-2 py-2 mt-1 rounded-xl hover:bg-white/60 transition-colors"
         title="Your AI engine"
       >
         <span className="relative flex items-center justify-center w-9 h-9 rounded-full border border-[var(--color-line)] bg-white">

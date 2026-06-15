@@ -8,6 +8,7 @@ import Home from "./components/Home.jsx";
 import Brain from "./components/Brain.jsx";
 import Workspace from "./components/Workspace.jsx";
 import Automations from "./components/Automations.jsx";
+import PrivacyPanel from "./components/PrivacyPanel.jsx";
 import ProjectPanel from "./components/ProjectPanel.jsx";
 import TemplatesPanel from "./components/TemplatesPanel.jsx";
 import ConnectorsPanel from "./components/ConnectorsPanel.jsx";
@@ -19,6 +20,8 @@ const PROJECTS_KEY = "fui10.projects.v1";
 const TEMPLATES_KEY = "fui10.templates.v1";
 const CONNECTORS_KEY = "fui10.connectors.v1";
 const WEBSEARCH_KEY = "fui10.websearch.v1";
+const OFFLINE_KEY = "fui10.offline.v1";
+const PRIVACYLOG_KEY = "fui10.privacylog.v1";
 
 // Starter templates so it's useful on day one. {{input}} is where the user types.
 const DEFAULT_TEMPLATES = [
@@ -32,6 +35,29 @@ const SYSTEM_PROMPT =
   "You are 'for us in 10', a private AI assistant that runs entirely on the user's own computer. " +
   "Nothing they say ever leaves their device. Be warm, clear and genuinely helpful. " +
   "Explain things simply, the way you'd help a friend who isn't technical. Keep answers focused.";
+
+// Modes change the assistant's whole posture. Pro-human by design: Reflect helps
+// you think (it doesn't think for you); Learn builds your skill (it doesn't just
+// hand over answers). All three run fully on-device.
+const MODE_PROMPTS = {
+  assist: SYSTEM_PROMPT,
+  reflect:
+    "You are a private reflection companion in 'for us in 10', running entirely on the user's own computer — " +
+    "nothing they say ever leaves their device. Be a calm, warm, non-judgmental thinking partner, like a trusted " +
+    "friend or a journal that listens. Help the user think for themselves: reflect their words back, ask one or two " +
+    "gentle, open questions, and gently notice patterns. Do not lecture, diagnose, or rush to advice unless they ask. " +
+    "Keep it human, brief and unhurried.",
+  learn:
+    "You are a patient Socratic tutor in 'for us in 10', running entirely on the user's own computer — fully private. " +
+    "Your goal is for the user to genuinely understand and build their own skill, not to be handed answers. Start from " +
+    "what they already know, explain simply, and prefer guiding questions and small hints before full solutions. Check " +
+    "their understanding and encourage them. Only give a complete answer if they're truly stuck or explicitly ask for it.",
+};
+const MODES = [
+  { id: "assist", label: "Assist" },
+  { id: "reflect", label: "Reflect" },
+  { id: "learn", label: "Learn" },
+];
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -74,12 +100,20 @@ function loadConnectors() {
   return [];
 }
 
+function loadPrivacyLog() {
+  try {
+    const raw = localStorage.getItem(PRIVACYLOG_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return [];
+}
+
 // Turn our stored messages (with attachments) into what the engine expects.
 // Images are always included; the main process picks a working vision model
 // (or strips them with a friendly note if none is installed).
-function buildApiMessages(messages, project, queryText = "") {
-  // Base behavior + optional project instructions + linked-file knowledge.
-  let system = SYSTEM_PROMPT;
+function buildApiMessages(messages, project, queryText = "", mode = "assist") {
+  // Base behavior (per mode) + optional project instructions + linked-file knowledge.
+  let system = MODE_PROMPTS[mode] || SYSTEM_PROMPT;
   if (project?.instructions?.trim()) {
     system += `\n\nThis conversation is part of the project "${project.name}". ` +
       `Follow these project instructions:\n${project.instructions.trim()}`;
@@ -143,6 +177,19 @@ export default function App() {
       return false;
     }
   });
+  // Conversation mode (Assist / Reflect / Learn) — changes the assistant's posture.
+  const [mode, setMode] = useState("assist");
+  // Privacy: Offline Mode (airtight — nothing can leave) + a visible activity log
+  // of everything that has ever left the device (web-search queries, sends).
+  const [offline, setOffline] = useState(() => {
+    try {
+      return localStorage.getItem(OFFLINE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [privacyLog, setPrivacyLog] = useState(loadPrivacyLog);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
 
   // Templates / workflows
   const [templates, setTemplates] = useState(loadTemplates);
@@ -210,6 +257,25 @@ export default function App() {
     } catch {}
   }, [webSearchOn]);
 
+  // Persist Offline Mode + the privacy activity log
+  useEffect(() => {
+    try {
+      localStorage.setItem(OFFLINE_KEY, String(offline));
+    } catch {}
+  }, [offline]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(PRIVACYLOG_KEY, JSON.stringify(privacyLog.slice(0, 200)));
+    } catch {}
+  }, [privacyLog]);
+
+  // Append an entry to the "what left your device" log. Keeps the newest 200.
+  const logPrivacy = useCallback((type, detail) => {
+    setPrivacyLog((prev) =>
+      [{ id: uid(), ts: Date.now(), type, detail }, ...prev].slice(0, 200)
+    );
+  }, []);
+
   /* ── Template handlers ── */
   function useTemplate(t) {
     const idx = t.prompt.indexOf("{{input}}");
@@ -275,6 +341,7 @@ export default function App() {
     });
     if (res?.ok) {
       showToast(`Sent to ${connector.name}`);
+      logPrivacy("send", connector.name); // record this outbound send
       // Learn: remember where this template's output went, for next time.
       if (message?.templateId) {
         setTemplates((prev) =>
@@ -309,9 +376,10 @@ export default function App() {
   // Wire up streaming listeners once
   useEffect(() => {
     if (!window.localai) return;
-    const offSearching = window.localai.onSearching(({ id }) => {
+    const offSearching = window.localai.onSearching(({ id, query }) => {
       if (id !== streamRef.current.reqId) return;
       setSearching(true);
+      if (query) logPrivacy("search", query); // record exactly what left the device
     });
     const offToken = window.localai.onToken(({ id, token }) => {
       if (id !== streamRef.current.reqId) return;
@@ -462,6 +530,22 @@ export default function App() {
     );
   }
 
+  // Ask-your-files: pick a local folder; its readable text is ingested on-device.
+  async function linkFolderToProject(id) {
+    const res = await window.localai?.files?.readFolder();
+    if (!res?.ok) {
+      if (!res?.canceled) showToast("Couldn't read that folder", "error");
+      return;
+    }
+    if (!res.files.length) {
+      showToast("No readable text files found in that folder");
+      return;
+    }
+    const newFiles = res.files.map((f) => ({ id: uid(), name: f.name, content: f.content }));
+    addFilesToProject(id, newFiles);
+    showToast(`Added ${newFiles.length} file${newFiles.length === 1 ? "" : "s"} from ${res.folder}`);
+  }
+
   function removeFileFromProject(id, fileId) {
     setProjects((prev) =>
       prev.map((p) =>
@@ -538,8 +622,8 @@ export default function App() {
     window.localai.chat({
       id: reqId,
       model, // main process upgrades to a vision model when photos are present
-      messages: buildApiMessages(baseMessages, chatProject, trimmed),
-      web: webSearchOn,
+      messages: buildApiMessages(baseMessages, chatProject, trimmed, mode),
+      web: webSearchOn && !offline,
     });
   }
 
@@ -583,8 +667,8 @@ export default function App() {
     window.localai.chat({
       id: reqId,
       model, // main process upgrades to a vision model when photos are present
-      messages: buildApiMessages(history, proj, lastQuery),
-      web: webSearchOn,
+      messages: buildApiMessages(history, proj, lastQuery, mode),
+      web: webSearchOn && !offline,
     });
   }
 
@@ -614,6 +698,8 @@ export default function App() {
           onSection={setSection}
           brainTier="Core"
           onUpgradeBrain={upgradeBrain}
+          offline={offline}
+          onOpenPrivacy={() => setPrivacyOpen(true)}
         />
         {section === "chat" ? (
           <>
@@ -643,8 +729,11 @@ export default function App() {
               onProjectSettings={() => setSettingsProjectId(activeProjectId)}
               usingFiles={usingFiles}
               searching={searching}
-              webSearchOn={webSearchOn}
+              webSearchOn={webSearchOn && !offline}
               onToggleWebSearch={() => setWebSearchOn((v) => !v)}
+              offline={offline}
+              mode={mode}
+              onMode={setMode}
               templates={templates}
               onUseTemplate={useTemplate}
               onOpenTemplates={() => setTemplatesOpen(true)}
@@ -665,8 +754,10 @@ export default function App() {
                 recent={conversations}
                 onOpenConversation={openConversation}
                 memoryCount={facts.length}
-                webSearchOn={webSearchOn}
+                webSearchOn={webSearchOn && !offline}
                 onToggleWebSearch={() => setWebSearchOn((v) => !v)}
+                offline={offline}
+                onOpenPrivacy={() => setPrivacyOpen(true)}
               />
             )}
             {section === "workspace" && (
@@ -675,6 +766,7 @@ export default function App() {
                 onNewProject={createProject}
                 onOpenSettings={setSettingsProjectId}
                 onEnterProject={enterProject}
+                onLinkFolder={linkFolderToProject}
               />
             )}
             {section === "automations" && (
@@ -728,6 +820,14 @@ export default function App() {
         onSave={saveConnector}
         onDelete={deleteConnector}
         onTest={testConnector}
+      />
+      <PrivacyPanel
+        open={privacyOpen}
+        offline={offline}
+        onToggleOffline={() => setOffline((v) => !v)}
+        log={privacyLog}
+        onClear={() => setPrivacyLog([])}
+        onClose={() => setPrivacyOpen(false)}
       />
       <Toast toast={toast} />
     </div>
