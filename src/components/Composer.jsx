@@ -1,18 +1,12 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { Paperclip, ArrowUp, Square, X, FileText, Loader2, Zap, Globe, Plane, Sparkles, Leaf, GraduationCap } from "lucide-react";
+import { useState, useRef, useCallback } from "react";
+import { Paperclip, ArrowUp, Square, X, FileText, Loader2, Globe, Plane } from "lucide-react";
 import { fileKind, prettyBytes } from "../lib/utils.js";
 import { extractDocText } from "../lib/extract.js";
 
 const MAX_TEXT_CHARS = 60000;
 let attachSeq = 0;
 
-const MODE_OPTIONS = [
-  { id: "assist", label: "Assist", icon: Sparkles },
-  { id: "reflect", label: "Reflect", icon: Leaf },
-  { id: "learn", label: "Learn", icon: GraduationCap },
-];
-
-export default function Composer({ streaming, onSend, onStop, onOpenTemplates, seed, webSearchOn, onToggleWebSearch, offline, mode = "assist", onMode }) {
+export default function Composer({ streaming, onSend, onStop, webSearchOn, onToggleWebSearch, offline }) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [dragging, setDragging] = useState(false);
@@ -20,22 +14,6 @@ export default function Composer({ streaming, onSend, onStop, onOpenTemplates, s
   const fileRef = useRef(null);
 
   const anyLoading = attachments.some((a) => a.loading);
-
-  // A template was picked → drop its text in and place the cursor at {{input}}.
-  useEffect(() => {
-    if (!seed?.nonce) return;
-    setText(seed.text);
-    requestAnimationFrame(() => {
-      const ta = taRef.current;
-      if (!ta) return;
-      ta.focus();
-      const pos = seed.caret ?? seed.text.length;
-      ta.setSelectionRange(pos, pos);
-      ta.style.height = "auto";
-      ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seed?.nonce]);
 
   const grow = useCallback(() => {
     const ta = taRef.current;
@@ -146,32 +124,6 @@ export default function Composer({ streaming, onSend, onStop, onOpenTemplates, s
 
   return (
     <div className="px-4 pb-4 pt-1">
-      {onMode && (
-        <div className="max-w-3xl mx-auto flex justify-center mb-2.5">
-          <div className="inline-flex items-center gap-0.5 p-0.5 rounded-full bg-[var(--color-paper-2)] border border-[var(--color-line)]">
-            {MODE_OPTIONS.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                onClick={() => onMode(id)}
-                className={`flex items-center gap-1.5 text-[0.78rem] font-medium rounded-full px-3 py-1.5 transition-all ${
-                  mode === id
-                    ? "bg-white text-[var(--color-ink)] shadow-soft"
-                    : "text-[var(--color-ink-faint)] hover:text-[var(--color-ink-soft)]"
-                }`}
-                title={
-                  id === "reflect"
-                    ? "A private thinking partner — helps you reflect"
-                    : id === "learn"
-                    ? "A Socratic tutor — builds your understanding"
-                    : "Everyday help"
-                }
-              >
-                <Icon size={13} className={mode === id ? "text-[var(--color-brand)]" : ""} /> {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -258,15 +210,6 @@ export default function Composer({ streaming, onSend, onStop, onOpenTemplates, s
           >
             <Paperclip size={18} />
           </button>
-          {onOpenTemplates && (
-            <button
-              onClick={onOpenTemplates}
-              className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-slate-400 hover:text-emerald-500 hover:bg-emerald-50/50 transition-all"
-              title="Templates"
-            >
-              <Zap size={18} />
-            </button>
-          )}
           {onToggleWebSearch &&
             (offline ? (
               <span

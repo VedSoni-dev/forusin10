@@ -5,29 +5,16 @@ import Chat from "./components/Chat.jsx";
 import TitleBar from "./components/TitleBar.jsx";
 import PrivacyPanel from "./components/PrivacyPanel.jsx";
 import Toast from "./components/Toast.jsx";
-import { selectKnowledge } from "./lib/knowledge.js";
 
 const STORAGE_KEY = "fui10.conversations.v1";
-const PROJECTS_KEY = "fui10.projects.v1";
-const TEMPLATES_KEY = "fui10.templates.v1";
-const CONNECTORS_KEY = "fui10.connectors.v1";
 const WEBSEARCH_KEY = "fui10.websearch.v1";
 const OFFLINE_KEY = "fui10.offline.v1";
 const PRIVACYLOG_KEY = "fui10.privacylog.v1";
 
-// Starter templates so it's useful on day one. {{input}} is where the user types.
-const DEFAULT_TEMPLATES = [
-  { emoji: "📝", title: "Summarize", prompt: "Summarize the following clearly, with a few key bullet points:\n\n{{input}}" },
-  { emoji: "✍️", title: "Rewrite professionally", prompt: "Rewrite the following to sound clear, warm and professional:\n\n{{input}}" },
-  { emoji: "💡", title: "Explain simply", prompt: "Explain this in plain language, like I'm completely new to it:\n\n{{input}}" },
-  { emoji: "✉️", title: "Draft an email", prompt: "Write a friendly, concise email about:\n\n{{input}}" },
-  { emoji: "✅", title: "Find action items", prompt: "Pull out the clear action items and next steps from this:\n\n{{input}}" },
-];
 const SYSTEM_PROMPT =
   "You are 'for us in 10', a private AI assistant that runs entirely on the user's own computer. " +
   "Nothing they say ever leaves their device. Be warm, clear and genuinely helpful. " +
   "Explain things simply, the way you'd help a friend who isn't technical. Keep answers focused.";
-
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -36,35 +23,6 @@ function uid() {
 function loadConversations() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return [];
-}
-
-function loadProjects() {
-  try {
-    const raw = localStorage.getItem(PROJECTS_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return [];
-}
-
-function loadTemplates() {
-  try {
-    const raw = localStorage.getItem(TEMPLATES_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  // First run: seed with the starters.
-  return DEFAULT_TEMPLATES.map((t) => ({
-    id: Math.random().toString(36).slice(2),
-    createdAt: Date.now(),
-    ...t,
-  }));
-}
-
-function loadConnectors() {
-  try {
-    const raw = localStorage.getItem(CONNECTORS_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
   return [];
@@ -81,23 +39,8 @@ function loadPrivacyLog() {
 // Turn our stored messages (with attachments) into what the engine expects.
 // Images are always included; the main process picks a working vision model
 // (or strips them with a friendly note if none is installed).
-function buildApiMessages(messages, project, queryText = "") {
-  // Base behavior + optional project instructions + linked-file knowledge.
-  let system = SYSTEM_PROMPT;
-  if (project?.instructions?.trim()) {
-    system += `\n\nThis conversation is part of the project "${project.name}". ` +
-      `Follow these project instructions:\n${project.instructions.trim()}`;
-  }
-  if (project?.files?.length) {
-    const knowledge = selectKnowledge(project.files, queryText);
-    if (knowledge) {
-      system +=
-        `\n\nReference material from the user's linked files (use it to answer; ` +
-        `mention the file name when you rely on it):\n${knowledge}`;
-    }
-  }
-
-  const out = [{ role: "system", content: system }];
+function buildApiMessages(messages) {
+  const out = [{ role: "system", content: SYSTEM_PROMPT }];
   for (const m of messages) {
     if (m.role === "assistant") {
       out.push({ role: "assistant", content: m.content });
@@ -124,17 +67,11 @@ function buildApiMessages(messages, project, queryText = "") {
 export default function App() {
   const [screen, setScreen] = useState("loading"); // loading | onboarding | ready
   const [model, setModel] = useState("forusin10:core");
-  const [visionModel, setVisionModel] = useState(null);
   const [conversations, setConversations] = useState(loadConversations);
   const [activeId, setActiveId] = useState(() => loadConversations()[0]?.id || null);
   const [streaming, setStreaming] = useState(false);
-
-  // Projects: workspaces that group chats + carry instructions + linked files
-  const [projects, setProjects] = useState(loadProjects);
-  const [activeProjectId, setActiveProjectId] = useState(null);
-  const [settingsProjectId, setSettingsProjectId] = useState(null);
-  const [usingFiles, setUsingFiles] = useState(false); // "answering from your files" cue
   const [searching, setSearching] = useState(false); // "looking it up on the web" cue
+
   // Web search: when on, fresh questions are answered using a quick web lookup.
   // Off by default keeps the "nothing leaves your device" promise literally true;
   // toggling it on is the user explicitly opting in to send search queries out.
@@ -146,7 +83,7 @@ export default function App() {
     }
   });
   // Privacy: Offline Mode (airtight — nothing can leave) + a visible activity log
-  // of everything that has ever left the device (web-search queries, sends).
+  // of everything that has ever left the device (web-search queries).
   const [offline, setOffline] = useState(() => {
     try {
       return localStorage.getItem(OFFLINE_KEY) === "true";
@@ -157,16 +94,9 @@ export default function App() {
   const [privacyLog, setPrivacyLog] = useState(loadPrivacyLog);
   const [privacyOpen, setPrivacyOpen] = useState(false);
 
-  // Templates / workflows
-  const [templates, setTemplates] = useState(loadTemplates);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
-  const [composerSeed, setComposerSeed] = useState({ text: "", caret: 0, nonce: 0 });
-
-  // Connectors (webhook + save)
-  const [connectors, setConnectors] = useState(loadConnectors);
-  const [connectorsOpen, setConnectorsOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
+  const streamRef = useRef({ convId: null, msgId: null, reqId: null });
 
   function showToast(text, kind = "ok") {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -177,36 +107,12 @@ export default function App() {
   // The memory "brain" learns quietly in the background (main process); nothing
   // to surface here — the app stays dead simple.
 
-  const streamRef = useRef({ convId: null, msgId: null, reqId: null });
-  const pendingTemplateRef = useRef(null); // template that seeded the next message
-
   // Persist conversations
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
     } catch {}
   }, [conversations]);
-
-  // Persist projects
-  useEffect(() => {
-    try {
-      localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
-    } catch {}
-  }, [projects]);
-
-  // Persist templates
-  useEffect(() => {
-    try {
-      localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates));
-    } catch {}
-  }, [templates]);
-
-  // Persist connectors
-  useEffect(() => {
-    try {
-      localStorage.setItem(CONNECTORS_KEY, JSON.stringify(connectors));
-    } catch {}
-  }, [connectors]);
 
   // Persist the web-search opt-in
   useEffect(() => {
@@ -234,54 +140,6 @@ export default function App() {
     );
   }, []);
 
-  /* ── Template handlers ── */
-  function useTemplate(t) {
-    const idx = t.prompt.indexOf("{{input}}");
-    const text = t.prompt.replace("{{input}}", "");
-    const caret = idx >= 0 ? idx : text.length;
-    pendingTemplateRef.current = t.id; // remember which template this came from
-    setComposerSeed({ text, caret, nonce: Date.now() }); // drop into the composer
-    setTemplatesOpen(false);
-  }
-
-  // The place a template's output usually goes (explicit default, else learned).
-  function suggestedConnectorFor(message) {
-    if (!message?.templateId) return null;
-    const t = templates.find((x) => x.id === message.templateId);
-    if (!t) return null;
-    const cid = t.defaultConnectorId || t.lastConnectorId;
-    return connectors.find((c) => c.id === cid) || null;
-  }
-  function saveTemplate(tpl) {
-    setTemplates((prev) =>
-      prev.some((t) => t.id === tpl.id)
-        ? prev.map((t) => (t.id === tpl.id ? tpl : t))
-        : [{ ...tpl, createdAt: Date.now() }, ...prev]
-    );
-  }
-  function deleteTemplate(id) {
-    setTemplates((prev) => prev.filter((t) => t.id !== id));
-  }
-
-  /* ── Connector handlers (user-initiated push) ── */
-  function saveConnector(c) {
-    setConnectors((prev) =>
-      prev.some((x) => x.id === c.id)
-        ? prev.map((x) => (x.id === c.id ? c : x))
-        : [c, ...prev]
-    );
-  }
-  function deleteConnector(id) {
-    setConnectors((prev) => prev.filter((c) => c.id !== id));
-  }
-  async function testConnector(c) {
-    const res = await window.localai?.connectors?.webhook({
-      url: c.url,
-      text: "✅ Test from for us in 10 — your connector works!",
-      title: "Connector test",
-    });
-    return Boolean(res?.ok);
-  }
   async function saveReplyToFile(content) {
     const res = await window.localai?.connectors?.saveFile({
       suggestedName: "reply.md",
@@ -289,28 +147,6 @@ export default function App() {
     });
     if (res?.ok) showToast("Saved to your computer");
     else if (!res?.canceled) showToast("Couldn't save the file", "error");
-  }
-  async function sendReplyToWebhook(connector, content, message) {
-    showToast(`Sending to ${connector.name}…`);
-    const res = await window.localai?.connectors?.webhook({
-      url: connector.url,
-      text: content,
-      title: "Shared from for us in 10",
-    });
-    if (res?.ok) {
-      showToast(`Sent to ${connector.name}`);
-      logPrivacy("send", connector.name); // record this outbound send
-      // Learn: remember where this template's output went, for next time.
-      if (message?.templateId) {
-        setTemplates((prev) =>
-          prev.map((t) =>
-            t.id === message.templateId ? { ...t, lastConnectorId: connector.id } : t
-          )
-        );
-      }
-    } else {
-      showToast(`Couldn't reach ${connector.name}`, "error");
-    }
   }
 
   // Check the local engine on launch
@@ -322,7 +158,6 @@ export default function App() {
     }
     const s = await window.localai.status();
     if (s.chatModel) setModel(s.chatModel);
-    if (s.visionModel) setVisionModel(s.visionModel);
     if (s.running && s.hasModel) setScreen("ready");
     else setScreen("onboarding");
   }, []);
@@ -359,12 +194,11 @@ export default function App() {
     const finish = ({ id }) => {
       if (id !== streamRef.current.reqId) return;
       setStreaming(false);
-      setUsingFiles(false);
       setSearching(false);
       streamRef.current = { convId: null, msgId: null, reqId: null };
     };
     const offDone = window.localai.onDone(finish);
-    const offErr = window.localai.onError(({ id, error }) => {
+    const offErr = window.localai.onError(({ id }) => {
       if (id !== streamRef.current.reqId) return;
       const { convId, msgId } = streamRef.current;
       setConversations((prev) =>
@@ -388,7 +222,6 @@ export default function App() {
         )
       );
       setStreaming(false);
-      setUsingFiles(false);
       setSearching(false);
       streamRef.current = { convId: null, msgId: null, reqId: null };
     });
@@ -398,19 +231,9 @@ export default function App() {
       offDone?.();
       offErr?.();
     };
-  }, []);
+  }, [logPrivacy]);
 
   const activeConv = conversations.find((c) => c.id === activeId) || null;
-  // Chats shown in the sidebar depend on the selected project (null = all).
-  const visibleConversations = activeProjectId
-    ? conversations.filter((c) => c.projectId === activeProjectId)
-    : conversations;
-  // The project that governs the current chat (existing conv's, or the selected one).
-  const activeProject =
-    projects.find(
-      (p) => p.id === (activeConv ? activeConv.projectId : activeProjectId)
-    ) || null;
-  const settingsProject = projects.find((p) => p.id === settingsProjectId) || null;
 
   function newChat() {
     setActiveId(null);
@@ -421,69 +244,6 @@ export default function App() {
     if (activeId === id) setActiveId(null);
   }
 
-  /* ── Project handlers ── */
-  function createProject() {
-    const p = {
-      id: uid(),
-      name: "New project",
-      instructions: "",
-      files: [],
-      createdAt: Date.now(),
-    };
-    setProjects((prev) => [p, ...prev]);
-    setActiveProjectId(p.id);
-    setActiveId(null);
-    setSettingsProjectId(p.id); // open settings so they can name it & add files
-  }
-
-  function updateProject(id, patch) {
-    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-  }
-
-  function deleteProject(id) {
-    setProjects((prev) => prev.filter((p) => p.id !== id));
-    // Detach its chats rather than deleting them.
-    setConversations((prev) =>
-      prev.map((c) => (c.projectId === id ? { ...c, projectId: null } : c))
-    );
-    if (activeProjectId === id) setActiveProjectId(null);
-    if (settingsProjectId === id) setSettingsProjectId(null);
-  }
-
-  function addFilesToProject(id, newFiles) {
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === id ? { ...p, files: [...(p.files || []), ...newFiles] } : p
-      )
-    );
-  }
-
-  // Ask-your-files: pick a local folder; its readable text is ingested on-device.
-  async function linkFolderToProject(id) {
-    const res = await window.localai?.files?.readFolder();
-    if (!res?.ok) {
-      if (!res?.canceled) showToast("Couldn't read that folder", "error");
-      return;
-    }
-    if (!res.files.length) {
-      showToast("No readable text files found in that folder");
-      return;
-    }
-    const newFiles = res.files.map((f) => ({ id: uid(), name: f.name, content: f.content }));
-    addFilesToProject(id, newFiles);
-    showToast(`Added ${newFiles.length} file${newFiles.length === 1 ? "" : "s"} from ${res.folder}`);
-  }
-
-  function removeFileFromProject(id, fileId) {
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? { ...p, files: (p.files || []).filter((f) => f.id !== fileId) }
-          : p
-      )
-    );
-  }
-
   async function sendMessage(text, attachments) {
     if (streaming) return;
     const trimmed = text.trim();
@@ -491,11 +251,6 @@ export default function App() {
 
     const userMsg = { id: uid(), role: "user", content: trimmed, attachments };
     const asstMsg = { id: uid(), role: "assistant", content: "" };
-    // Tag this reply with the template that produced it (for smart sharing).
-    if (pendingTemplateRef.current) {
-      asstMsg.templateId = pendingTemplateRef.current;
-      pendingTemplateRef.current = null;
-    }
 
     let convId = activeId;
     let baseMessages = [];
@@ -507,13 +262,7 @@ export default function App() {
         trimmed.slice(0, 40) + (trimmed.length > 40 ? "…" : "") ||
         attachments[0]?.name ||
         "New chat";
-      const conv = {
-        id: convId,
-        title,
-        createdAt: Date.now(),
-        projectId: activeProjectId || null, // inherit the selected project
-        messages: [userMsg, asstMsg],
-      };
+      const conv = { id: convId, title, createdAt: Date.now(), messages: [userMsg, asstMsg] };
       baseMessages = [userMsg];
       setConversations((prev) => [conv, ...prev]);
       setActiveId(convId);
@@ -529,12 +278,6 @@ export default function App() {
       );
     }
 
-    // Which project governs this chat (for instructions + linked knowledge)?
-    const existing = conversations.find((c) => c.id === convId);
-    const projId = existing ? existing.projectId : activeProjectId;
-    const chatProject = projects.find((p) => p.id === projId) || null;
-    setUsingFiles(Boolean(chatProject?.files?.length)); // show "reading your files" cue
-
     const reqId = uid();
     streamRef.current = { convId, msgId: asstMsg.id, reqId };
     setStreaming(true);
@@ -545,12 +288,10 @@ export default function App() {
       return;
     }
 
-    // If the user attached a photo and a vision-capable model is installed,
-    // route this turn to it so attachments are actually "seen".
     window.localai.chat({
       id: reqId,
       model, // main process upgrades to a vision model when photos are present
-      messages: buildApiMessages(baseMessages, chatProject, trimmed),
+      messages: buildApiMessages(baseMessages),
       web: webSearchOn && !offline,
     });
   }
@@ -558,7 +299,6 @@ export default function App() {
   function stop() {
     if (streamRef.current.reqId) window.localai?.stop(streamRef.current.reqId);
     setStreaming(false);
-    setUsingFiles(false);
     setSearching(false);
   }
 
@@ -572,8 +312,6 @@ export default function App() {
 
     const history = conv.messages.slice(0, idx); // everything before this answer
     if (!history.some((m) => m.role === "user")) return;
-    const proj = projects.find((p) => p.id === conv.projectId) || null;
-    const lastQuery = [...history].reverse().find((m) => m.role === "user")?.content || "";
 
     // Drop anything after this answer and clear it, ready to stream fresh.
     const newMessages = conv.messages
@@ -594,8 +332,8 @@ export default function App() {
 
     window.localai.chat({
       id: reqId,
-      model, // main process upgrades to a vision model when photos are present
-      messages: buildApiMessages(history, proj, lastQuery),
+      model,
+      messages: buildApiMessages(history),
       web: webSearchOn && !offline,
     });
   }
@@ -636,12 +374,10 @@ export default function App() {
           onSend={sendMessage}
           onStop={stop}
           onRegenerate={regenerate}
-          usingFiles={usingFiles}
           searching={searching}
           webSearchOn={webSearchOn && !offline}
           onToggleWebSearch={() => setWebSearchOn((v) => !v)}
           offline={offline}
-          composerSeed={composerSeed}
           onSaveFile={saveReplyToFile}
         />
       </div>
