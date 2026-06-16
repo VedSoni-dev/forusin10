@@ -3,15 +3,7 @@ import Onboarding from "./components/Onboarding.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import Chat from "./components/Chat.jsx";
 import TitleBar from "./components/TitleBar.jsx";
-import NavRail from "./components/NavRail.jsx";
-import Home from "./components/Home.jsx";
-import Brain from "./components/Brain.jsx";
-import Workspace from "./components/Workspace.jsx";
-import Automations from "./components/Automations.jsx";
 import PrivacyPanel from "./components/PrivacyPanel.jsx";
-import ProjectPanel from "./components/ProjectPanel.jsx";
-import TemplatesPanel from "./components/TemplatesPanel.jsx";
-import ConnectorsPanel from "./components/ConnectorsPanel.jsx";
 import Toast from "./components/Toast.jsx";
 import { selectKnowledge } from "./lib/knowledge.js";
 
@@ -36,28 +28,6 @@ const SYSTEM_PROMPT =
   "Nothing they say ever leaves their device. Be warm, clear and genuinely helpful. " +
   "Explain things simply, the way you'd help a friend who isn't technical. Keep answers focused.";
 
-// Modes change the assistant's whole posture. Pro-human by design: Reflect helps
-// you think (it doesn't think for you); Learn builds your skill (it doesn't just
-// hand over answers). All three run fully on-device.
-const MODE_PROMPTS = {
-  assist: SYSTEM_PROMPT,
-  reflect:
-    "You are a private reflection companion in 'for us in 10', running entirely on the user's own computer — " +
-    "nothing they say ever leaves their device. Be a calm, warm, non-judgmental thinking partner, like a trusted " +
-    "friend or a journal that listens. Help the user think for themselves: reflect their words back, ask one or two " +
-    "gentle, open questions, and gently notice patterns. Do not lecture, diagnose, or rush to advice unless they ask. " +
-    "Keep it human, brief and unhurried.",
-  learn:
-    "You are a patient Socratic tutor in 'for us in 10', running entirely on the user's own computer — fully private. " +
-    "Your goal is for the user to genuinely understand and build their own skill, not to be handed answers. Start from " +
-    "what they already know, explain simply, and prefer guiding questions and small hints before full solutions. Check " +
-    "their understanding and encourage them. Only give a complete answer if they're truly stuck or explicitly ask for it.",
-};
-const MODES = [
-  { id: "assist", label: "Assist" },
-  { id: "reflect", label: "Reflect" },
-  { id: "learn", label: "Learn" },
-];
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -111,9 +81,9 @@ function loadPrivacyLog() {
 // Turn our stored messages (with attachments) into what the engine expects.
 // Images are always included; the main process picks a working vision model
 // (or strips them with a friendly note if none is installed).
-function buildApiMessages(messages, project, queryText = "", mode = "assist") {
-  // Base behavior (per mode) + optional project instructions + linked-file knowledge.
-  let system = MODE_PROMPTS[mode] || SYSTEM_PROMPT;
+function buildApiMessages(messages, project, queryText = "") {
+  // Base behavior + optional project instructions + linked-file knowledge.
+  let system = SYSTEM_PROMPT;
   if (project?.instructions?.trim()) {
     system += `\n\nThis conversation is part of the project "${project.name}". ` +
       `Follow these project instructions:\n${project.instructions.trim()}`;
@@ -153,8 +123,6 @@ function buildApiMessages(messages, project, queryText = "", mode = "assist") {
 
 export default function App() {
   const [screen, setScreen] = useState("loading"); // loading | onboarding | ready
-  const [section, setSection] = useState("home"); // home | chat | workspace | automations | brain
-  const [facts, setFacts] = useState([]); // the visible "Brain" — memory the AI builds
   const [model, setModel] = useState("forusin10:core");
   const [visionModel, setVisionModel] = useState(null);
   const [conversations, setConversations] = useState(loadConversations);
@@ -177,8 +145,6 @@ export default function App() {
       return false;
     }
   });
-  // Conversation mode (Assist / Reflect / Learn) — changes the assistant's posture.
-  const [mode, setMode] = useState("assist");
   // Privacy: Offline Mode (airtight — nothing can leave) + a visible activity log
   // of everything that has ever left the device (web-search queries, sends).
   const [offline, setOffline] = useState(() => {
@@ -208,16 +174,8 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }
 
-  // The memory "brain" learns in the background (main process). We surface it in
-  // the Brain section: load it once, then keep it live as new facts are learned.
-  useEffect(() => {
-    if (!window.localai?.memory) return;
-    window.localai.memory.get().then(setFacts).catch(() => {});
-    const off = window.localai.memory.onUpdated?.(({ facts }) => {
-      if (facts) setFacts(facts);
-    });
-    return () => off?.();
-  }, []);
+  // The memory "brain" learns quietly in the background (main process); nothing
+  // to surface here — the app stays dead simple.
 
   const streamRef = useRef({ convId: null, msgId: null, reqId: null });
   const pendingTemplateRef = useRef(null); // template that seeded the next message
@@ -456,41 +414,11 @@ export default function App() {
 
   function newChat() {
     setActiveId(null);
-    setSection("chat");
   }
 
   function deleteChat(id) {
     setConversations((prev) => prev.filter((c) => c.id !== id));
     if (activeId === id) setActiveId(null);
-  }
-
-  /* ── Section navigation handlers ── */
-  function askFromHome(text) {
-    setSection("chat");
-    setActiveId(null);
-    sendMessage(text, []);
-  }
-  function openConversation(id) {
-    setActiveId(id);
-    setSection("chat");
-  }
-  function enterProject(id) {
-    setActiveProjectId(id);
-    setActiveId(null);
-    setSection("chat");
-  }
-  function runTemplateFromSection(t) {
-    useTemplate(t);
-    setSection("chat");
-  }
-  function forgetFact(id) {
-    window.localai?.memory?.delete(id).then(setFacts).catch(() => {});
-  }
-  function clearBrain() {
-    window.localai?.memory?.clear().then(setFacts).catch(() => {});
-  }
-  function upgradeBrain() {
-    showToast("Pro Brain — a bigger on-device model — is coming soon.");
   }
 
   /* ── Project handlers ── */
@@ -622,7 +550,7 @@ export default function App() {
     window.localai.chat({
       id: reqId,
       model, // main process upgrades to a vision model when photos are present
-      messages: buildApiMessages(baseMessages, chatProject, trimmed, mode),
+      messages: buildApiMessages(baseMessages, chatProject, trimmed),
       web: webSearchOn && !offline,
     });
   }
@@ -667,7 +595,7 @@ export default function App() {
     window.localai.chat({
       id: reqId,
       model, // main process upgrades to a vision model when photos are present
-      messages: buildApiMessages(history, proj, lastQuery, mode),
+      messages: buildApiMessages(history, proj, lastQuery),
       web: webSearchOn && !offline,
     });
   }
@@ -693,134 +621,37 @@ export default function App() {
   } else {
     content = (
       <div className="h-full flex text-[var(--color-ink)] overflow-hidden">
-        <NavRail
-          section={section}
-          onSection={setSection}
-          brainTier="Core"
-          onUpgradeBrain={upgradeBrain}
+        <Sidebar
+          conversations={conversations}
+          activeId={activeId}
+          onSelect={setActiveId}
+          onNew={newChat}
+          onDelete={deleteChat}
           offline={offline}
           onOpenPrivacy={() => setPrivacyOpen(true)}
         />
-        {section === "chat" ? (
-          <>
-            <Sidebar
-              conversations={visibleConversations}
-              activeId={activeId}
-              onSelect={setActiveId}
-              onNew={newChat}
-              onDelete={deleteChat}
-              projects={projects}
-              activeProjectId={activeProjectId}
-              onSelectProject={(pid) => {
-                setActiveProjectId(pid);
-                setActiveId(null);
-              }}
-              onNewProject={createProject}
-              onProjectSettings={setSettingsProjectId}
-              onOpenSharing={() => setConnectorsOpen(true)}
-            />
-            <Chat
-              conversation={activeConv}
-              streaming={streaming}
-              onSend={sendMessage}
-              onStop={stop}
-              onRegenerate={regenerate}
-              project={activeProjectId ? activeProject : null}
-              onProjectSettings={() => setSettingsProjectId(activeProjectId)}
-              usingFiles={usingFiles}
-              searching={searching}
-              webSearchOn={webSearchOn && !offline}
-              onToggleWebSearch={() => setWebSearchOn((v) => !v)}
-              offline={offline}
-              mode={mode}
-              onMode={setMode}
-              templates={templates}
-              onUseTemplate={useTemplate}
-              onOpenTemplates={() => setTemplatesOpen(true)}
-              composerSeed={composerSeed}
-              connectors={connectors}
-              onSaveFile={saveReplyToFile}
-              onSendWebhook={sendReplyToWebhook}
-              onManageConnectors={() => setConnectorsOpen(true)}
-              getSuggestedConnector={suggestedConnectorFor}
-            />
-          </>
-        ) : (
-          <div className="flex-1 min-w-0">
-            {section === "home" && (
-              <Home
-                onAsk={askFromHome}
-                onSection={setSection}
-                recent={conversations}
-                onOpenConversation={openConversation}
-                memoryCount={facts.length}
-                webSearchOn={webSearchOn && !offline}
-                onToggleWebSearch={() => setWebSearchOn((v) => !v)}
-                offline={offline}
-                onOpenPrivacy={() => setPrivacyOpen(true)}
-              />
-            )}
-            {section === "workspace" && (
-              <Workspace
-                projects={projects}
-                onNewProject={createProject}
-                onOpenSettings={setSettingsProjectId}
-                onEnterProject={enterProject}
-                onLinkFolder={linkFolderToProject}
-              />
-            )}
-            {section === "automations" && (
-              <Automations
-                templates={templates}
-                connectors={connectors}
-                onRunTemplate={runTemplateFromSection}
-                onEditTemplates={() => setTemplatesOpen(true)}
-                onManageConnectors={() => setConnectorsOpen(true)}
-              />
-            )}
-            {section === "brain" && (
-              <Brain
-                facts={facts}
-                onDelete={forgetFact}
-                onClear={clearBrain}
-                onUpgradeBrain={upgradeBrain}
-              />
-            )}
-          </div>
-        )}
+        <Chat
+          conversation={activeConv}
+          streaming={streaming}
+          onSend={sendMessage}
+          onStop={stop}
+          onRegenerate={regenerate}
+          usingFiles={usingFiles}
+          searching={searching}
+          webSearchOn={webSearchOn && !offline}
+          onToggleWebSearch={() => setWebSearchOn((v) => !v)}
+          offline={offline}
+          composerSeed={composerSeed}
+          onSaveFile={saveReplyToFile}
+        />
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-[var(--color-paper)]">
       <TitleBar />
       <div className="flex-1 min-h-0">{content}</div>
-      <ProjectPanel
-        project={settingsProject}
-        onClose={() => setSettingsProjectId(null)}
-        onUpdate={(patch) => updateProject(settingsProject.id, patch)}
-        onAddFiles={(files) => addFilesToProject(settingsProject.id, files)}
-        onRemoveFile={(fid) => removeFileFromProject(settingsProject.id, fid)}
-        onDelete={() => deleteProject(settingsProject.id)}
-      />
-      <TemplatesPanel
-        open={templatesOpen}
-        templates={templates}
-        connectors={connectors}
-        onClose={() => setTemplatesOpen(false)}
-        onUse={useTemplate}
-        onSave={saveTemplate}
-        onDelete={deleteTemplate}
-      />
-      <ConnectorsPanel
-        open={connectorsOpen}
-        connectors={connectors}
-        onClose={() => setConnectorsOpen(false)}
-        onSave={saveConnector}
-        onDelete={deleteConnector}
-        onTest={testConnector}
-      />
       <PrivacyPanel
         open={privacyOpen}
         offline={offline}
