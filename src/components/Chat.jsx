@@ -17,12 +17,10 @@ export default function Chat({
   onSend,
   onStop,
   onRegenerate,
-  usingFiles,
   searching,
   webSearchOn,
   onToggleWebSearch,
   offline,
-  composerSeed,
   onSaveFile,
 }) {
   const scrollRef = useRef(null);
@@ -110,7 +108,6 @@ export default function Chat({
         streaming={streaming}
         onSend={onSend}
         onStop={onStop}
-        seed={composerSeed}
         webSearchOn={webSearchOn}
         onToggleWebSearch={onToggleWebSearch}
         offline={offline}
