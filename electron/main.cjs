@@ -1,9 +1,11 @@
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
 const { spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const memory = require("./memory.cjs");
+const { runCli } = require("../runtime/fui.cjs");
 
 /* ─────────────────────────────────────────────
    Bundled Ollama management
@@ -89,13 +91,28 @@ async function startBundledOllama() {
 Menu.setApplicationMenu(null);
 
 const isDev = process.env.NODE_ENV === "development";
+const cliArgIndex = process.argv.indexOf("--cli");
+const isCliMode = cliArgIndex !== -1;
+const cliArgs = isCliMode ? process.argv.slice(cliArgIndex + 1) : [];
 const OLLAMA = "http://127.0.0.1:11434";
 // We pull this small multimodal model (text + photos, ~3.2 GB) under the hood,
 // then alias it to a branded name so users never see a raw model id anywhere.
 const BASE_MODEL = "qwen2.5vl:3b";
 const DEFAULT_MODEL = "forusin10:core";
+const RUNTIME_PORT = Number(process.env.FUI10_RUNTIME_PORT || 43110);
+const RUNTIME_VERSION = "0.1.0-alpha";
+const BUNDLES_DIR = path.join(__dirname, "..", "bundles");
+const DEFAULT_ALLOWED_ORIGINS = [
+  "https://www.10humansvsai.com",
+  "https://10humansvsai.com",
+  "https://www.forusin10.com",
+  "https://forusin10.com",
+];
 
 let win;
+let runtimeServer = null;
+let grantsFile = null;
+let grantsStore = { grants: [] };
 // Tracks in-flight chat streams so they can be stopped.
 const controllers = new Map();
 
@@ -135,11 +152,18 @@ function createWindow() {
   win.on("unmaximize", notify);
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (isCliMode) {
+    await startCliMode();
+    return;
+  }
+
   memory.init(app.getPath("userData"));
+  initPermissionStore(app.getPath("userData"));
   // Start our bundled Ollama in the background — fire-and-forget so the window
   // opens immediately while the binary is booting up.
   startBundledOllama().catch((e) => console.error("[ollama] startup error:", e));
+  startRuntimeGateway().catch((e) => console.error("[runtime] startup error:", e));
   createWindow();
   setupAutoUpdate();
   app.on("activate", () => {
@@ -147,8 +171,40 @@ app.whenReady().then(() => {
   });
 });
 
+async function startCliMode() {
+  const userDataDir = app.getPath("userData");
+  process.env.FUI10_RUNTIME_DATA_DIR = userDataDir;
+  memory.init(userDataDir);
+  initPermissionStore(userDataDir);
+
+  const command = cliArgs[0] || "help";
+  if (needsRuntime(command)) {
+    await startBundledOllama().catch((e) => console.error("[ollama] startup error:", e));
+    await startRuntimeGateway().catch((e) => console.error("[runtime] startup error:", e));
+  }
+
+  try {
+    await runCli(cliArgs, {
+      dataDir: userDataDir,
+      baseUrl: `http://127.0.0.1:${RUNTIME_PORT}`,
+    });
+    if (command !== "serve") app.quit();
+  } catch (error) {
+    console.error(`fui: ${error?.message || error}`);
+    app.exit(1);
+  }
+}
+
+function needsRuntime(command) {
+  return command === "serve" || command === "status" || command === "models" || command === "run";
+}
+
 // Kill the bundled Ollama process cleanly when the app quits.
 app.on("before-quit", () => {
+  if (runtimeServer) {
+    runtimeServer.close();
+    runtimeServer = null;
+  }
   if (ollamaProcess) {
     ollamaProcess.kill();
     ollamaProcess = null;
@@ -292,9 +348,14 @@ ipcMain.handle("memory:clear", () => {
   memory.clearAll();
   return memory.getFacts();
 });
+ipcMain.handle("permissions:list", () => listGrants());
+ipcMain.handle("permissions:revoke", (_e, key) => {
+  revokeGrant(key);
+  return listGrants();
+});
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (!isCliMode && process.platform !== "darwin") app.quit();
 });
 
 // Architectures that report "vision" but don't actually work on this engine:
@@ -353,22 +414,26 @@ async function pickVisionModel(models) {
   return candidates[0];
 }
 
-/* ─────────────────────────────────────────────
-   Health check: is the local engine running, and
-   is our model already downloaded?
-───────────────────────────────────────────── */
-ipcMain.handle("ollama:status", async () => {
+async function getRuntimeStatus() {
   try {
     const res = await fetch(`${OLLAMA}/api/tags`, {
       signal: AbortSignal.timeout(2500),
     });
-    if (!res.ok) return { running: false, hasModel: false, models: [] };
+    if (!res.ok) {
+      return {
+        runtime: "forusin10",
+        version: RUNTIME_VERSION,
+        running: false,
+        hasModel: false,
+        models: [],
+        port: RUNTIME_PORT,
+      };
+    }
+
     const data = await res.json();
     const models = (data.models || []).map((m) => m.name);
     const hasBrand = models.includes(DEFAULT_MODEL);
     const hasBase = models.some((n) => n === BASE_MODEL || n.startsWith(`${BASE_MODEL}:`));
-    // If the base model is present but the branded alias isn't, create it
-    // and retire the raw tag so users only ever see the brand.
     if (!hasBrand && hasBase) {
       const base = models.find((n) => n === BASE_MODEL || n.startsWith(`${BASE_MODEL}:`));
       await fetch(`${OLLAMA}/api/copy`, {
@@ -382,19 +447,634 @@ ipcMain.handle("ollama:status", async () => {
         body: JSON.stringify({ name: base }),
       }).catch(() => {});
     }
+
     const visionModel = await pickVisionModel(models);
     return {
+      runtime: "forusin10",
+      version: RUNTIME_VERSION,
       running: true,
       hasModel: hasBrand || hasBase,
       models,
       chatModel: DEFAULT_MODEL,
       visionModel,
       defaultModel: DEFAULT_MODEL,
+      port: RUNTIME_PORT,
     };
   } catch {
-    return { running: false, hasModel: false, models: [] };
+    return {
+      runtime: "forusin10",
+      version: RUNTIME_VERSION,
+      running: false,
+      hasModel: false,
+      models: [],
+      port: RUNTIME_PORT,
+    };
   }
-});
+}
+
+function getRuntimeCapabilities() {
+  return {
+    runtime: "forusin10",
+    version: RUNTIME_VERSION,
+    capabilities: [
+      "chat.stream",
+      "generate",
+      "memory.local",
+      "files.local-picker",
+      "web-search.opt-in",
+      "vision.when-model-available",
+    ],
+    endpoints: {
+      health: "/v1/health",
+      capabilities: "/v1/capabilities",
+      models: "/v1/models",
+      chat: "/v1/chat",
+      chatCompletions: "/v1/chat/completions",
+      generate: "/v1/generate",
+      memory: "/v1/memory",
+      bundles: "/v1/bundles",
+      permissions: "/v1/permissions/request",
+      stop: "/v1/stop",
+    },
+    models: {
+      default: DEFAULT_MODEL,
+      base: BASE_MODEL,
+      profiles: ["fast", "balanced", "vision"],
+    },
+  };
+}
+
+function listBundles() {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(BUNDLES_DIR, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const manifestPath = path.join(BUNDLES_DIR, entry.name, "manifest.json");
+      try {
+        return JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function initPermissionStore(userDataDir) {
+  grantsFile = path.join(userDataDir, "runtime-grants.json");
+  try {
+    if (fs.existsSync(grantsFile)) {
+      grantsStore = JSON.parse(fs.readFileSync(grantsFile, "utf8"));
+    }
+  } catch {
+    grantsStore = { grants: [] };
+  }
+  if (!Array.isArray(grantsStore.grants)) grantsStore.grants = [];
+}
+
+function persistPermissionStore() {
+  if (!grantsFile) return;
+  try {
+    fs.writeFileSync(grantsFile, JSON.stringify(grantsStore, null, 2), "utf8");
+  } catch {}
+}
+
+function parseRuntimeApp(req) {
+  const raw = req.headers["x-forusin10-app"];
+  if (!raw) {
+    return { id: "unknown.app", name: "Unknown app" };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      id: String(parsed.id || "unknown.app").slice(0, 120),
+      name: String(parsed.name || parsed.id || "Unknown app").slice(0, 160),
+    };
+  } catch {
+    return { id: "unknown.app", name: "Unknown app" };
+  }
+}
+
+function grantKey(origin, appId) {
+  return `${origin || "null"}::${appId || "unknown.app"}`;
+}
+
+function getGrant(origin, appId) {
+  const key = grantKey(origin, appId);
+  return grantsStore.grants.find((grant) => grant.key === key) || null;
+}
+
+function listGrants() {
+  return [...grantsStore.grants].sort((a, b) =>
+    String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
+  );
+}
+
+function revokeGrant(key) {
+  const before = grantsStore.grants.length;
+  grantsStore.grants = grantsStore.grants.filter((grant) => grant.key !== key);
+  const changed = grantsStore.grants.length !== before;
+  if (changed) persistPermissionStore();
+  return changed;
+}
+
+function hasGrant(origin, appId, capabilities = []) {
+  const grant = getGrant(origin, appId);
+  if (!grant) return false;
+  return capabilities.every((capability) => grant.capabilities.includes(capability));
+}
+
+function saveGrant(origin, appInfo, capabilities = []) {
+  const key = grantKey(origin, appInfo.id);
+  const now = new Date().toISOString();
+  const existing = getGrant(origin, appInfo.id);
+  if (existing) {
+    existing.capabilities = [...new Set([...existing.capabilities, ...capabilities])];
+    existing.appName = appInfo.name;
+    existing.updatedAt = now;
+  } else {
+    grantsStore.grants.push({
+      key,
+      origin,
+      appId: appInfo.id,
+      appName: appInfo.name,
+      capabilities: [...new Set(capabilities)],
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  persistPermissionStore();
+}
+
+async function requestGrant(origin, appInfo, capabilities = []) {
+  if (hasGrant(origin, appInfo.id, capabilities)) {
+    return { ok: true, alreadyGranted: true, grant: getGrant(origin, appInfo.id) };
+  }
+
+  if (!win) {
+    return { ok: false, error: "No approval window is available." };
+  }
+
+  const label = origin === "null" ? "a local file" : origin;
+  const result = await dialog.showMessageBox(win, {
+    type: "question",
+    buttons: ["Allow", "Deny"],
+    defaultId: 0,
+    cancelId: 1,
+    title: "Allow local AI access?",
+    message: `${appInfo.name} wants to use your local AI runtime.`,
+    detail:
+      `Origin: ${label}\n` +
+      `App ID: ${appInfo.id}\n` +
+      `Requested access: ${capabilities.join(", ") || "none"}`,
+  });
+
+  if (result.response !== 0) {
+    return { ok: false, denied: true, error: "The user denied access." };
+  }
+
+  saveGrant(origin, appInfo, capabilities);
+  return { ok: true, alreadyGranted: false, grant: getGrant(origin, appInfo.id) };
+}
+
+function requireGrant(req, res, origin, capabilities = []) {
+  const appInfo = parseRuntimeApp(req);
+  if (hasGrant(origin, appInfo.id, capabilities)) return true;
+  writeJson(
+    res,
+    401,
+    {
+      ok: false,
+      error: "Permission required",
+      required: capabilities,
+      app: appInfo,
+      endpoint: "/v1/permissions/request",
+    },
+    origin
+  );
+  return false;
+}
+
+function genRuntimeId() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+async function runChat({ id, model, messages, web }, events = {}) {
+  const reqId = id || genRuntimeId();
+  const controller = new AbortController();
+  controllers.set(reqId, controller);
+
+  try {
+    const wantsVision = messages.some((m) => m.images?.length);
+    let useModel = model || DEFAULT_MODEL;
+    if (wantsVision && !(await modelCanSee(useModel))) {
+      const tags = await fetch(`${OLLAMA}/api/tags`)
+        .then((r) => r.json())
+        .catch(() => ({}));
+      const installed = (tags.models || []).map((m) => m.name);
+      const vm = await pickVisionModel(installed);
+      if (vm) {
+        useModel = vm;
+      } else {
+        for (const m of messages) {
+          if (m.images?.length) {
+            delete m.images;
+            m.content +=
+              "\n\n(The user attached an image, but no photo-reading AI is " +
+              "installed yet, so you can't see it. Kindly let them know.)";
+          }
+        }
+      }
+    }
+
+    if (web && !wantsVision && !controller.signal.aborted) {
+      const query = await planSearch(useModel, messages);
+      if (query && !controller.signal.aborted) {
+        events.searching?.({ id: reqId, query });
+        const results = await webSearch(query);
+        if (results) {
+          const today = new Date().toISOString().slice(0, 10);
+          const block =
+            `\n\nLive web search results for "${query}" (retrieved ${today}). ` +
+            `Use these to answer the user's question, and mention that you looked it up:\n${results}`;
+          if (messages[0]?.role === "system") messages[0].content += block;
+          else messages.unshift({ role: "system", content: block.trimStart() });
+        }
+      }
+    }
+
+    const recentUser = messages
+      .filter((m) => m.role === "user")
+      .slice(-2)
+      .map((m) => m.content || "")
+      .join(" ");
+    const memBlock = memory.buildMemoryBlock(recentUser);
+    if (memBlock) {
+      if (messages[0]?.role === "system") messages[0].content += memBlock;
+      else messages.unshift({ role: "system", content: memBlock.trimStart() });
+    }
+
+    const { messages: sendMessages, compacted } = await memory.compact(useModel, messages);
+    if (compacted) events.compacted?.({ id: reqId });
+
+    const res = await fetch(`${OLLAMA}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: useModel,
+        messages: sendMessages,
+        stream: true,
+        options: { num_ctx: 8192 },
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok || !res.body) {
+      events.error?.({ id: reqId, error: "The AI engine did not respond." });
+      controllers.delete(reqId);
+      return { ok: false, id: reqId };
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let full = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const obj = JSON.parse(line);
+          const token = obj.message?.content || "";
+          if (token) {
+            full += token;
+            events.token?.({ id: reqId, token });
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    events.done?.({ id: reqId });
+    controllers.delete(reqId);
+
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    learnInBackground(useModel, lastUser?.content || "", full);
+
+    return { ok: true, id: reqId, content: full, model: useModel };
+  } catch (err) {
+    if (controller.signal.aborted) {
+      events.done?.({ id: reqId, stopped: true });
+    } else {
+      events.error?.({ id: reqId, error: String(err?.message || err) });
+    }
+    controllers.delete(reqId);
+    return { ok: false, id: reqId };
+  }
+}
+
+function allowedOrigin(req) {
+  const origin = req.headers.origin || "";
+  if (!origin) return "null";
+  if (origin === "null") return "null";
+  try {
+    const url = new URL(origin);
+    const allowed = new Set(
+      [...DEFAULT_ALLOWED_ORIGINS, ...(process.env.FUI10_ALLOWED_ORIGINS || "").split(",")]
+        .map((x) => x.trim())
+        .filter(Boolean)
+    );
+    const isLocal =
+      url.hostname === "localhost" ||
+      url.hostname === "127.0.0.1" ||
+      url.hostname === "::1";
+    if (isLocal || allowed.has(origin)) return origin;
+  } catch {}
+  return null;
+}
+
+function corsHeaders(origin) {
+  return {
+    "Access-Control-Allow-Origin": origin || "null",
+    "Access-Control-Allow-Headers": "Content-Type, X-ForUsIn10-App, Authorization",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Private-Network": "true",
+    Vary: "Origin, Access-Control-Request-Private-Network",
+  };
+}
+
+function writeJson(res, status, data, origin) {
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    ...corsHeaders(origin),
+  });
+  res.end(JSON.stringify(data));
+}
+
+function writeSseHeaders(res, origin) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    ...corsHeaders(origin),
+  });
+}
+
+function writeSse(res, event, data) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function writeOpenAiSse(res, data) {
+  res.write(`data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`);
+}
+
+async function readJsonBody(req) {
+  let raw = "";
+  for await (const chunk of req) raw += chunk;
+  if (!raw.trim()) return {};
+  return JSON.parse(raw);
+}
+
+function openAiModelsPayload() {
+  return {
+    object: "list",
+    data: [
+      {
+        id: DEFAULT_MODEL,
+        object: "model",
+        created: 0,
+        owned_by: "forusin10",
+      },
+    ],
+  };
+}
+
+function openAiCompletionPayload({ id, model, content }) {
+  return {
+    id,
+    object: "chat.completion",
+    created: Math.floor(Date.now() / 1000),
+    model: model || DEFAULT_MODEL,
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content: content || "" },
+        finish_reason: "stop",
+      },
+    ],
+  };
+}
+
+async function startRuntimeGateway() {
+  if (runtimeServer) return;
+
+  runtimeServer = http.createServer(async (req, res) => {
+    const origin = allowedOrigin(req);
+    if (!origin) {
+      writeJson(res, 403, { ok: false, error: "Origin not allowed" }, "null");
+      return;
+    }
+
+    if (req.method === "OPTIONS") {
+      writeJson(res, 204, {}, origin);
+      return;
+    }
+
+    const url = new URL(req.url, `http://127.0.0.1:${RUNTIME_PORT}`);
+    try {
+      if (req.method === "GET" && url.pathname === "/v1/health") {
+        writeJson(res, 200, await getRuntimeStatus(), origin);
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/v1/capabilities") {
+        writeJson(res, 200, getRuntimeCapabilities(), origin);
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/v1/models") {
+        writeJson(res, 200, openAiModelsPayload(), origin);
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/v1/memory") {
+        if (!requireGrant(req, res, origin, ["memory"])) return;
+        writeJson(res, 200, { facts: memory.getFacts() }, origin);
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/v1/bundles") {
+        writeJson(res, 200, { bundles: listBundles() }, origin);
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/v1/permissions/grants") {
+        const appInfo = parseRuntimeApp(req);
+        const grant = getGrant(origin, appInfo.id);
+        writeJson(res, 200, { app: appInfo, origin, grant }, origin);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/v1/permissions/revoke") {
+        const appInfo = parseRuntimeApp(req);
+        const changed = revokeGrant(grantKey(origin, appInfo.id));
+        writeJson(res, 200, { ok: true, revoked: changed }, origin);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/v1/permissions/request") {
+        const body = await readJsonBody(req);
+        const appInfo = parseRuntimeApp(req);
+        const capabilities = Array.isArray(body.capabilities) ? body.capabilities : ["chat"];
+        const result = await requestGrant(origin, appInfo, capabilities);
+        writeJson(res, result.ok ? 200 : result.denied ? 403 : 500, result, origin);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/v1/stop") {
+        if (!requireGrant(req, res, origin, ["chat"])) return;
+        const body = await readJsonBody(req);
+        const c = controllers.get(body.id);
+        if (c) c.abort();
+        writeJson(res, 200, { ok: true, stopped: Boolean(c) }, origin);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/v1/generate") {
+        if (!requireGrant(req, res, origin, ["chat"])) return;
+        const body = await readJsonBody(req);
+        const messages = body.messages || [{ role: "user", content: body.prompt || "" }];
+        const result = await runChat({
+          id: body.id,
+          model: body.model,
+          messages,
+          web: Boolean(body.web),
+        });
+        writeJson(res, result.ok ? 200 : 500, result, origin);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
+        if (!requireGrant(req, res, origin, ["chat"])) return;
+        const body = await readJsonBody(req);
+        const messages = Array.isArray(body.messages) ? body.messages : [];
+
+        if (body.stream) {
+          const completionId = body.id || `chatcmpl-${genRuntimeId()}`;
+          writeSseHeaders(res, origin);
+
+          await runChat(
+            {
+              id: completionId,
+              model: body.model,
+              messages,
+              web: Boolean(body.web),
+            },
+            {
+              token: (data) =>
+                writeOpenAiSse(res, {
+                  id: completionId,
+                  object: "chat.completion.chunk",
+                  created: Math.floor(Date.now() / 1000),
+                  model: body.model || DEFAULT_MODEL,
+                  choices: [{ index: 0, delta: { content: data.token }, finish_reason: null }],
+                }),
+              done: () => {
+                writeOpenAiSse(res, {
+                  id: completionId,
+                  object: "chat.completion.chunk",
+                  created: Math.floor(Date.now() / 1000),
+                  model: body.model || DEFAULT_MODEL,
+                  choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+                });
+                writeOpenAiSse(res, "[DONE]");
+              },
+              error: (data) => writeOpenAiSse(res, { error: data.error || "Local runtime error" }),
+            }
+          );
+          res.end();
+          return;
+        }
+
+        const result = await runChat({
+          id: body.id,
+          model: body.model,
+          messages,
+          web: Boolean(body.web),
+        });
+        if (!result.ok) {
+          writeJson(res, 500, { error: { message: "Local runtime error" } }, origin);
+          return;
+        }
+        writeJson(
+          res,
+          200,
+          openAiCompletionPayload({
+            id: result.id,
+            model: result.model || body.model,
+            content: result.content,
+          }),
+          origin
+        );
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/v1/chat") {
+        if (!requireGrant(req, res, origin, ["chat"])) return;
+        const body = await readJsonBody(req);
+        writeSseHeaders(res, origin);
+
+        await runChat(
+          {
+            id: body.id,
+            model: body.model,
+            messages: body.messages || [],
+            web: Boolean(body.web),
+          },
+          {
+            searching: (data) => writeSse(res, "searching", data),
+            compacted: (data) => writeSse(res, "compacted", data),
+            token: (data) => writeSse(res, "token", data),
+            done: (data) => writeSse(res, "done", data),
+            error: (data) => writeSse(res, "error", data),
+          }
+        );
+        res.end();
+        return;
+      }
+
+      writeJson(res, 404, { ok: false, error: "Not found" }, origin);
+    } catch (err) {
+      writeJson(res, 500, { ok: false, error: String(err?.message || err) }, origin);
+    }
+  });
+
+  runtimeServer.on("error", (err) => {
+    console.error("[runtime] server error:", err?.message || err);
+  });
+
+  runtimeServer.listen(RUNTIME_PORT, "127.0.0.1", () => {
+    console.log(`[runtime] listening on http://127.0.0.1:${RUNTIME_PORT}`);
+  });
+}
+
+/* ─────────────────────────────────────────────
+   Health check: is the local engine running, and
+   is our model already downloaded?
+───────────────────────────────────────────── */
+ipcMain.handle("ollama:status", getRuntimeStatus);
 
 /* ─────────────────────────────────────────────
    First-run: download the model, streaming progress

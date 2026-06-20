@@ -5,13 +5,18 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import {
-  Leaf, FileText, ImageIcon, Copy, Check, RotateCcw, Download,
+  Check,
+  Copy,
+  Download,
+  FileText,
+  ImageIcon,
+  Leaf,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "../lib/utils.js";
 
-// Models emit LaTeX with \[…\] (block) and \(…\) delimiters, but markdown eats
-// the backslash before the bracket, so the math shows up as raw text. Convert
-// those to the $$…$$ / $…$ that remark-math understands, before markdown runs.
+// Models emit LaTeX with block and inline delimiters, but markdown eats the
+// backslash before the bracket. Convert those to forms remark-math understands.
 function mathify(src = "") {
   return src
     .replace(/\\\[([\s\S]+?)\\\]/g, (_, x) => `\n\n$$\n${x.trim()}\n$$\n\n`)
@@ -30,7 +35,7 @@ function MessageActions({ content, canRegenerate, onRegenerate, onSaveFile }) {
   }
 
   const btn =
-    "flex items-center gap-1.5 text-[0.72rem] font-light text-[var(--color-ink-faint)] hover:text-[var(--color-ink)] hover:bg-[var(--color-paper-2)] rounded-lg px-2 py-1 transition-all";
+    "flex items-center gap-1.5 text-[0.72rem] font-light text-[var(--color-ink-faint)] hover:text-[var(--color-ink)] hover:bg-[var(--color-paper-2)] rounded-lg px-2 py-1 transition-colors duration-150";
 
   return (
     <div className="flex items-center gap-1 mt-2 -ml-1.5">
@@ -89,13 +94,7 @@ function AttachmentChips({ attachments }) {
   );
 }
 
-function Message({
-  message,
-  streaming,
-  canRegenerate,
-  onRegenerate,
-  onSaveFile,
-}) {
+function Message({ message, streaming, canRegenerate, onRegenerate, onSaveFile }) {
   const isUser = message.role === "user";
 
   if (isUser) {

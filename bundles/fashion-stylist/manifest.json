@@ -1,0 +1,18 @@
+{
+  "id": "fashion.stylist",
+  "name": "Fashion Stylist",
+  "version": "0.1.0",
+  "description": "A sample ecosystem bundle for fashion apps that need local outfit reasoning, image-aware styling, and private preference memory.",
+  "models": {
+    "preferred": "vision",
+    "fallback": "balanced",
+    "default": "forusin10:core"
+  },
+  "capabilities": ["chat", "vision", "memory"],
+  "tools": ["image-understanding", "style-notes"],
+  "permissions": {
+    "network": "off",
+    "filesystem": "none",
+    "memory": "local"
+  }
+}

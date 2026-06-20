@@ -1,0 +1,18 @@
+{
+  "id": "general.assistant",
+  "name": "General Assistant",
+  "version": "0.1.0",
+  "description": "The default private assistant bundle for chat, files, local memory, and opt-in web lookup.",
+  "models": {
+    "preferred": "balanced",
+    "fallback": "fast",
+    "default": "forusin10:core"
+  },
+  "capabilities": ["chat", "files", "memory", "vision"],
+  "tools": ["web-search", "folder-read", "document-extract"],
+  "permissions": {
+    "network": "ask",
+    "filesystem": "scoped",
+    "memory": "local"
+  }
+}

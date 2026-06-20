@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldCheck, Plane, Globe, Send, X, CheckCircle2, Trash2, Lock } from "lucide-react";
+import { ShieldCheck, Plane, Globe, Send, X, CheckCircle2, Trash2, Lock, KeyRound } from "lucide-react";
 
 function when(ts) {
   const d = new Date(ts);
@@ -8,7 +8,16 @@ function when(ts) {
   });
 }
 
-export default function PrivacyPanel({ open, offline, onToggleOffline, log = [], onClear, onClose }) {
+export default function PrivacyPanel({
+  open,
+  offline,
+  onToggleOffline,
+  log = [],
+  grants = [],
+  onRevokeGrant,
+  onClear,
+  onClose,
+}) {
   return (
     <AnimatePresence>
       {open && (
@@ -26,7 +35,7 @@ export default function PrivacyPanel({ open, offline, onToggleOffline, log = [],
             exit={{ opacity: 0, scale: 0.97, y: 8 }}
             transition={{ type: "spring", stiffness: 380, damping: 32 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative surface rounded-2xl shadow-lift w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden"
+            className="relative surface rounded-2xl shadow-lift w-full max-w-xl max-h-[84vh] flex flex-col overflow-hidden"
           >
             {/* Header */}
             <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-4">
@@ -39,7 +48,7 @@ export default function PrivacyPanel({ open, offline, onToggleOffline, log = [],
                     Privacy
                   </h2>
                   <p className="text-[0.82rem] text-[var(--color-ink-soft)] font-light">
-                    See exactly what does — and doesn't — leave your device.
+                    See exactly what does and does not leave your device.
                   </p>
                 </div>
               </div>
@@ -55,7 +64,7 @@ export default function PrivacyPanel({ open, offline, onToggleOffline, log = [],
             <div className="px-6 pb-4">
               <button
                 onClick={onToggleOffline}
-                className={`w-full flex items-center gap-3 rounded-xl border p-3.5 text-left transition-all ${
+                className={`w-full flex items-center gap-3 rounded-xl border p-3.5 text-left transition-[background-color,border-color] duration-150 ${
                   offline
                     ? "border-[var(--color-brand)] bg-[var(--color-brand-soft)]"
                     : "border-[var(--color-line)] hover:border-[var(--color-ink-faint)]"
@@ -66,20 +75,72 @@ export default function PrivacyPanel({ open, offline, onToggleOffline, log = [],
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="text-[0.92rem] font-medium text-[var(--color-ink)]">
-                    Offline Mode {offline && "· on"}
+                    Offline Mode {offline && "- on"}
                   </div>
                   <div className="text-[0.8rem] text-[var(--color-ink-soft)] font-light">
                     {offline
-                      ? "Airtight. Web search is disabled — nothing can leave."
-                      : "Turn on to fully seal the app — even web search is blocked."}
+                      ? "Airtight. Web search is disabled, so nothing can leave."
+                      : "Turn on to fully seal the app. Even web search is blocked."}
                   </div>
                 </div>
                 <span
                   className={`relative flex-shrink-0 w-10 h-6 rounded-full transition-colors ${offline ? "bg-[var(--color-brand)]" : "bg-[var(--color-line)]"}`}
                 >
-                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all ${offline ? "left-[1.125rem]" : "left-0.5"}`} />
+                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-[left] duration-150 ${offline ? "left-[1.125rem]" : "left-0.5"}`} />
                 </span>
               </button>
+            </div>
+
+            {/* Connected apps */}
+            <div className="px-6 pb-4">
+              <div className="flex items-center justify-between pb-2">
+                <h3 className="text-[0.72rem] font-semibold text-[var(--color-ink-faint)] uppercase tracking-wide">
+                  Connected apps
+                </h3>
+              </div>
+              {grants.length === 0 ? (
+                <div className="rounded-xl border border-[var(--color-line)] bg-[var(--color-paper-2)]/45 px-3.5 py-3 flex items-center gap-3">
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white text-[var(--color-ink-faint)]">
+                    <KeyRound size={15} />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-[0.88rem] font-medium text-[var(--color-ink)]">
+                      No apps have access
+                    </div>
+                    <div className="text-[0.76rem] font-light text-[var(--color-ink-soft)]">
+                      Apps you approve will appear here.
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {grants.map((grant) => (
+                    <div
+                      key={grant.key}
+                      className="rounded-xl border border-[var(--color-line)] bg-[var(--color-paper-2)]/45 px-3.5 py-3 flex items-start gap-3"
+                    >
+                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white text-[var(--color-brand-deep)] flex-shrink-0">
+                        <KeyRound size={15} />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[0.88rem] font-medium text-[var(--color-ink)] truncate">
+                          {grant.appName || grant.appId}
+                        </div>
+                        <div className="text-[0.74rem] font-light text-[var(--color-ink-soft)] truncate">
+                          {grant.origin || "local file"} - {grant.capabilities?.join(", ") || "no scopes"}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onRevokeGrant?.(grant.key)}
+                        className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[var(--color-ink-faint)] hover:bg-white hover:text-red-500 transition-colors"
+                        title="Revoke access"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Activity log */}
@@ -108,7 +169,7 @@ export default function PrivacyPanel({ open, offline, onToggleOffline, log = [],
                   </p>
                   <p className="text-[0.82rem] text-[var(--color-ink-soft)] font-light mt-1 max-w-xs mx-auto">
                     Your conversations, files and Brain all stay here. The only thing
-                    that can ever go out is a web-search query — and only if you turn it on.
+                    that can ever go out is a web-search query, and only if you turn it on.
                   </p>
                 </div>
               ) : (
@@ -145,7 +206,7 @@ export default function PrivacyPanel({ open, offline, onToggleOffline, log = [],
             {/* Footer pledge */}
             <div className="px-6 py-4 border-t border-[var(--color-line-2)] flex items-center gap-2.5 text-[0.8rem] text-[var(--color-ink-soft)] font-light">
               <Lock size={14} className="text-[var(--color-brand)] flex-shrink-0" />
-              We can't train on you — the model runs entirely on your machine.
+              We cannot train on you. The model runs entirely on your machine.
             </div>
           </motion.div>
         </motion.div>

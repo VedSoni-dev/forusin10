@@ -1,17 +1,13 @@
-# Codemagic CI — the single build pipeline for this app (no GitHub Actions).
-# Builds installers on real cloud machines and publishes them to GitHub Releases,
-# which doubles as the auto-update feed (electron-updater + the `github` provider
-# in package.json). macOS apps can't be built on Windows, so each OS has its own
-# job — run whichever you need from https://codemagic.io.
+# Codemagic CI is the build pipeline for this app.
+# It builds installers on cloud macOS and Windows machines and publishes them to
+# GitHub Releases, which also powers the auto-update feed.
 #
-# ── One-time setup (Codemagic UI → App settings → Environment variables) ──
-#   GH_TOKEN = a GitHub personal access token with `repo` scope, marked Secret.
-#              electron-builder uses it to upload the installers + update manifests
-#              (latest.yml / latest-mac.yml) to a GitHub Release.
+# One-time setup in Codemagic:
+#   GH_TOKEN = GitHub personal access token with repo scope, marked Secret.
+#              electron-builder uses it to upload installers and update manifests.
 #
-# electron-builder creates/updates a DRAFT GitHub Release for the current version.
-# Run the macOS and Windows jobs (they append to the same draft), then publish the
-# draft on GitHub so existing apps pick up the auto-update.
+# electron-builder creates or updates a draft GitHub Release for the current
+# version. Run the macOS and Windows jobs, then publish the draft on GitHub.
 workflows:
   macos:
     name: macOS build
@@ -20,10 +16,8 @@ workflows:
     environment:
       node: 20
       vars:
-        # Unsigned for now (free). Mac users open via right-click → Open the first
-        # time, and Mac auto-update stays off until an Apple Developer cert is added.
-        # Add CSC_LINK + APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID as
-        # secrets and drop this line to enable signing + notarization + auto-update.
+        # Unsigned for now. Mac users open via right-click > Open the first time,
+        # and Mac auto-update stays off until an Apple Developer cert is added.
         CSC_IDENTITY_AUTO_DISCOVERY: "false"
     scripts:
       - name: Install dependencies
@@ -32,7 +26,7 @@ workflows:
         script: npm run build
       - name: Download Ollama binary (bundled into the app)
         script: node scripts/download-ollama.mjs
-      - name: Build & publish macOS app to GitHub Releases
+      - name: Build and publish macOS app to GitHub Releases
         script: npx electron-builder --mac dmg zip --publish always
     artifacts:
       - dist-app/*.dmg
@@ -53,9 +47,8 @@ workflows:
         script: npm run build
       - name: Download Ollama binary (bundled into the app)
         script: node scripts/download-ollama.mjs
-      - name: Build & publish Windows installer to GitHub Releases
-        # Unsigned — the installer shows a SmartScreen warning ("More info → Run
-        # anyway") until a code-signing cert is added (e.g. Azure Trusted Signing).
+      - name: Build and publish Windows installer to GitHub Releases
+        # Unsigned: the installer shows a SmartScreen warning until signing is added.
         script: npx electron-builder --win nsis --publish always
     artifacts:
       - dist-app/*.exe
