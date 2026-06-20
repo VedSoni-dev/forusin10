@@ -2,13 +2,19 @@
   "name": "forusin10-app",
   "version": "0.1.0",
   "private": true,
-  "description": "for us in 10 — private AI that runs entirely on your computer.",
+  "description": "for us in 10 - private AI that runs entirely on your computer.",
   "author": "for us in 10",
   "repository": "https://github.com/VedSoni-dev/forusin10",
   "main": "electron/main.cjs",
   "type": "module",
+  "bin": {
+    "fui": "runtime/fui.cjs"
+  },
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env NODE_ENV=development electron .\"",
+    "fui": "node runtime/fui.cjs",
+    "runtime:serve": "node runtime/fui.cjs serve",
+    "runtime:daemon": "node runtime/daemon.cjs",
     "build": "vite build",
     "start": "electron .",
     "dist": "node scripts/download-ollama.mjs && vite build && electron-builder --publish=never",
@@ -57,7 +63,10 @@
     "artifactName": "for-us-in-10-${version}.${ext}",
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "runtime/**/*",
+      "bundles/**/*",
+      "sdk/**/*"
     ],
     "publish": [
       {
@@ -74,13 +83,18 @@
         {
           "from": "resources/ollama/win/ollama.exe",
           "to": "ollama/ollama.exe"
+        },
+        {
+          "from": "resources/cli/win",
+          "to": "cli/win"
         }
       ]
     },
     "nsis": {
       "oneClick": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "include": "resources/installer/win/installer.nsh"
     },
     "mac": {
       "target": [
@@ -92,6 +106,10 @@
         {
           "from": "resources/ollama/mac/ollama",
           "to": "ollama/ollama"
+        },
+        {
+          "from": "resources/cli/mac",
+          "to": "cli/mac"
         }
       ]
     },

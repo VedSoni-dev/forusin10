@@ -1,62 +1,60 @@
-# for us in 10 — the app
+# for us in 10 - the app
 
 A private AI that runs **entirely on your own computer**. No servers, no tracking,
-nothing ever leaves your device. It feels like ChatGPT — ask anything, attach files
-and photos — except it's 100% yours.
+nothing ever leaves your device unless you explicitly turn on web search. It feels
+like ChatGPT - ask anything, attach files and photos - except it is yours.
 
-This is the desktop app that pairs with the [for us in 10](../localai) website.
+This is the desktop app that pairs with the for us in 10 website.
 
 ---
 
-## For everyday people
+## For Everyday People
 
-1. Install the free engine once: **https://ollama.com/download**
-2. Open the **for us in 10** app.
-3. The first time, it downloads your private AI (about 2 GB). After that it works
-   instantly — even with no internet, even on a plane.
-4. Start talking. Your words never leave your computer.
+1. Install the **for us in 10** desktop app.
+2. Open it once so the local runtime can start.
+3. On first launch, let the private model download. After that, it stays on your computer.
+4. Start talking. Your chats and files stay local by default.
 
 That's it. No accounts, no sign-ups, no subscriptions to chat.
 
 ---
 
-## What it does
+## What It Does
 
-- 💬 **Chat** like ChatGPT — writing, ideas, explanations, code.
-- 📎 **Attachments** — drop in PDFs, Word docs, text/code files or photos and ask about them.
-- 🔒 **Truly private** — runs locally; conversations are saved only on your device.
-- ✈️ **Works offline** — once set up, no internet needed.
+- Chat like ChatGPT for writing, ideas, explanations, and code.
+- Attach PDFs, Word docs, text/code files, or photos and ask about them.
+- Keep conversations saved only on your device.
+- Work offline after setup.
+- Turn on web search only when you need current information.
 
 ---
 
-## For developers
+## For Developers
 
-Built with **Electron + React + Vite + Tailwind v4**, styled to match the website
-(Inter, slate + emerald). The AI runs through a local [Ollama](https://ollama.com)
-engine — the app talks to it over `127.0.0.1:11434` from the Electron main process
-and streams tokens into the UI.
+Built with **Electron + React + Vite + Tailwind v4**. The AI runs through the
+local runtime and streams tokens into the UI.
 
 ```bash
 npm install        # install dependencies
-npm run dev        # live dev (Vite + Electron together)
+npm run dev        # live dev
 npm run build      # build the renderer
 npm start          # run the built app in Electron
-npm run dist:win   # package a Windows installer  (also :mac / :linux)
+npm run dist:win   # package a Windows installer
 ```
 
-### How the pieces fit
+### How The Pieces Fit
 
 | File | Role |
 |------|------|
-| `electron/main.cjs` | Window, model health-check, download progress, streaming chat |
-| `electron/preload.cjs` | Safe bridge between the UI and the engine |
-| `src/App.jsx` | State, conversations (saved in `localStorage`), streaming logic |
-| `src/components/Onboarding.jsx` | Friendly first-run: install engine → download model |
-| `src/components/Chat.jsx` | Welcome screen + message list |
-| `src/components/Composer.jsx` | Input box with attachments + drag-and-drop |
-| `src/components/Message.jsx` | Markdown rendering + attachment chips |
-| `src/components/Sidebar.jsx` | Conversation history |
+| `electron/main.cjs` | Window, runtime orchestration, model health, streaming chat |
+| `electron/preload.cjs` | Safe bridge between the UI and the local runtime |
+| `runtime/daemon.cjs` | Local HTTP runtime for browser and desktop clients |
+| `src/App.jsx` | App state, conversations, privacy controls, streaming logic |
+| `src/components/LandingPage.jsx` | First screen with install/setup guidance |
+| `src/components/Onboarding.jsx` | Friendly first-run setup |
+| `src/components/Chat.jsx` | Chat shell, suggestions, and composer |
+| `src/components/Composer.jsx` | Input box with attachments and drag-and-drop |
+| `src/components/Message.jsx` | Markdown rendering and attachment chips |
+| `src/components/Sidebar.jsx` | Conversation history and privacy/settings entry points |
 
-The default model is `llama3.2`. If a vision-capable model (e.g. `llama3.2-vision`)
-is installed, photo attachments are automatically routed to it so the AI can actually
-*see* them.
+Document and markdown rendering are lazy-loaded so the first screen stays fast.

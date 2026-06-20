@@ -1,49 +1,49 @@
 @import "tailwindcss";
 
-/* ─────────────────────────────────────────────────────────────
-   for us in 10 — "refined calm" design system
-   Warm paper, a characterful serif for display, a quiet emerald
-   signature, soft depth, and barely-there atmosphere. Premium,
-   trustworthy, unmistakably not-a-generic-AI-app.
-   ───────────────────────────────────────────────────────────── */
+/* Hallmark - genre: modern-minimal - macrostructure: Workbench app shell - theme: refined calm - enrichment: none - pre-emit critique: P4 H4 E4 S4 R4 V4 */
 @theme {
   --font-sans: "Inter Variable", system-ui, -apple-system, sans-serif;
   --font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
 
-  /* Surfaces */
-  --color-paper: #faf8f3; /* warm canvas the app floats on */
-  --color-paper-2: #f3f1ea; /* slightly deeper paper for rails */
-  --color-surface: #ffffff; /* cards / focused surfaces */
-
-  /* Ink */
-  --color-ink: #16191c; /* near-black, faintly warm */
-  --color-ink-soft: #5c6470; /* secondary text */
-  --color-ink-faint: #9aa1ab; /* tertiary / hints */
-  --color-line: #e7e3d8; /* warm hairline */
+  --color-paper: #faf8f3;
+  --color-paper-2: #f3f1ea;
+  --color-surface: #ffffff;
+  --color-ink: #16191c;
+  --color-ink-soft: #5c6470;
+  --color-ink-faint: #9aa1ab;
+  --color-line: #e7e3d8;
   --color-line-2: #efece3;
-
-  /* Signature emerald */
   --color-brand: #0e9f6e;
   --color-brand-deep: #0a7d57;
   --color-brand-soft: #e8f5ee;
   --color-brand-glow: rgba(16, 185, 129, 0.16);
-
-  /* Warm secondary accent (sand) — used sparingly */
   --color-sand: #c9a96a;
   --color-sand-soft: #f6efe1;
 
   --radius: 0.9rem;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
 }
 
 * {
   box-sizing: border-box;
 }
+
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
 }
+
+html {
+  overflow-x: clip;
+}
+
 #root {
   position: relative;
   z-index: 1;
@@ -59,7 +59,23 @@ body {
   overflow: hidden;
 }
 
-/* Atmospheric mesh — a soft emerald + sand breath, fixed behind everything */
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+button {
+  white-space: nowrap;
+}
+
+button:focus-visible,
+textarea:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 3px;
+}
+
 body::before {
   content: "";
   position: fixed;
@@ -71,7 +87,7 @@ body::before {
     radial-gradient(46rem 38rem at 104% 2%, rgba(201, 169, 106, 0.1), transparent 55%),
     radial-gradient(44rem 44rem at 86% 116%, rgba(16, 185, 129, 0.06), transparent 60%);
 }
-/* Fine film grain so flat areas have tooth, not plastic */
+
 body::after {
   content: "";
   position: fixed;
@@ -82,61 +98,61 @@ body::after {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* Display type helper (Fraunces, optical size up, gentle weight) */
 .font-display {
   font-family: var(--font-display);
   font-optical-sizing: auto;
   font-weight: 400;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
 }
 
-/* Depth — layered, soft, never harsh */
 .shadow-soft {
   box-shadow:
     0 1px 2px rgba(22, 25, 28, 0.04),
     0 4px 14px rgba(22, 25, 28, 0.05);
 }
+
 .shadow-lift {
   box-shadow:
     0 2px 6px rgba(22, 25, 28, 0.05),
     0 14px 40px rgba(22, 25, 28, 0.09);
 }
+
 .shadow-glow {
   box-shadow: 0 8px 30px var(--color-brand-glow);
 }
 
-/* A reusable floating card surface */
 .surface {
   background: var(--color-surface);
   border: 1px solid var(--color-line);
   border-radius: var(--radius);
 }
 
-/* Quiet scrollbars */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #ddd8cb;
   border-radius: 9999px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: #cbc5b4;
 }
 
-/* Native-feeling drag region for the frameless title bar */
 .drag {
   -webkit-app-region: drag;
 }
+
 .no-drag {
   -webkit-app-region: no-drag;
 }
 
-/* ── Motion ── */
 @keyframes blink {
   0%,
   50% {
@@ -147,6 +163,7 @@ body::after {
     opacity: 0;
   }
 }
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -157,6 +174,7 @@ body::after {
     transform: translateY(0);
   }
 }
+
 @keyframes breathe {
   0%,
   100% {
@@ -168,38 +186,57 @@ body::after {
     opacity: 1;
   }
 }
-/* Staggered page-load reveals: add .reveal and an inline --d delay */
+
 .reveal {
   opacity: 0;
-  animation: rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: rise var(--dur-long) var(--ease-out) forwards;
   animation-delay: var(--d, 0ms);
 }
 
-/* ── Markdown inside assistant answers ── */
+.surface-enter {
+  animation: rise var(--dur-long) var(--ease-out) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 150ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 150ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .prose-chat p {
   margin: 0 0 0.85em;
   line-height: 1.72;
 }
+
 .prose-chat p:last-child {
   margin-bottom: 0;
 }
+
 .prose-chat h1,
 .prose-chat h2,
 .prose-chat h3 {
   font-family: var(--font-display);
   font-weight: 500;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
   margin: 1.1em 0 0.5em;
 }
+
 .prose-chat ul,
 .prose-chat ol {
   margin: 0 0 0.85em;
   padding-left: 1.3em;
 }
+
 .prose-chat li {
   margin: 0.25em 0;
   line-height: 1.66;
 }
+
 .prose-chat code {
   background: #f4f2ea;
   border: 1px solid var(--color-line);
@@ -208,6 +245,7 @@ body::after {
   font-size: 0.85em;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
 .prose-chat pre {
   background: #14181c;
   color: #e4e7e1;
@@ -218,6 +256,7 @@ body::after {
   font-size: 0.85em;
   line-height: 1.6;
 }
+
 .prose-chat pre code {
   background: transparent;
   border: none;
@@ -225,14 +264,17 @@ body::after {
   color: inherit;
   font-size: inherit;
 }
+
 .prose-chat a {
   color: var(--color-brand-deep);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
 .prose-chat strong {
   font-weight: 600;
 }
+
 .prose-chat blockquote {
   border-left: 2px solid var(--color-line);
   padding-left: 1em;

@@ -52,6 +52,11 @@ contextBridge.exposeInMainWorld("localai", {
     },
   },
 
+  permissions: {
+    list: () => ipcRenderer.invoke("permissions:list"),
+    revoke: (key) => ipcRenderer.invoke("permissions:revoke", key),
+  },
+
   // App auto-update
   update: {
     check: () => ipcRenderer.invoke("update:check"),

@@ -1,5 +1,5 @@
 // Pull readable text out of binary documents (.pdf, .docx) entirely in the
-// renderer — no network, nothing leaves the device. The extracted text is
+// renderer - no network, nothing leaves the device. The extracted text is
 // inlined into the prompt exactly like a plain-text attachment.
 import { unzipSync, strFromU8 } from "fflate";
 import * as pdfjsLib from "pdfjs-dist";
@@ -9,7 +9,7 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
-/** Extract text from a .docx (Office Open XML — a zip of XML parts). */
+/** Extract text from a .docx (Office Open XML - a zip of XML parts). */
 export async function extractDocx(file) {
   const buf = new Uint8Array(await file.arrayBuffer());
   const zip = unzipSync(buf);
@@ -18,7 +18,7 @@ export async function extractDocx(file) {
   return xmlToText(strFromU8(part));
 }
 
-/** Turn WordprocessingML into plain text: paragraphs/breaks → newlines, tags → gone. */
+/** Turn WordprocessingML into plain text: paragraphs/breaks -> newlines, tags -> gone. */
 function xmlToText(xml) {
   return xml
     .replace(/<\/w:p>/g, "\n") // end of paragraph

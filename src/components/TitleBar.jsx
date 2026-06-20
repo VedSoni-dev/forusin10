@@ -4,7 +4,7 @@ import { Minus, Square, Copy, X, Download, Loader2 } from "lucide-react";
 const api = typeof window !== "undefined" ? window.localai : null;
 const isMac = api?.platform === "darwin";
 
-export default function TitleBar() {
+export default function TitleBar({ landing = false }) {
   const [maximized, setMaximized] = useState(false);
   const [update, setUpdate] = useState(null); // {state:'available'|'downloading'|'ready', percent, version}
 
@@ -37,11 +37,17 @@ export default function TitleBar() {
   return (
     <div className="drag flex items-stretch h-9 shrink-0 select-none">
       {/* Left segment continues the sidebar column */}
-      <div className="w-[260px] bg-slate-50 border-r border-slate-200" />
+      <div
+        className={
+          landing
+            ? "w-0"
+            : "w-[72px] sm:w-[260px] bg-slate-50 border-r border-slate-200"
+        }
+      />
 
       {/* Right segment continues the chat column */}
       <div className="flex-1 bg-white flex items-center justify-end gap-2 pr-1">
-        {/* Update button — shows whenever an update is available */}
+        {/* Update button - shows whenever an update is available */}
         {update && (
           <button
             onClick={() => update.state === "ready" && api.update.install()}
@@ -49,9 +55,9 @@ export default function TitleBar() {
             title={
               update.state === "ready"
                 ? "Restart to update"
-                : "Downloading update…"
+                : "Downloading update..."
             }
-            className={`no-drag flex items-center gap-1.5 rounded-full px-3 py-1 text-[0.72rem] font-normal transition-all ${
+            className={`no-drag flex items-center gap-1.5 rounded-full px-3 py-1 text-[0.72rem] font-normal transition-colors duration-150 ${
               update.state === "ready"
                 ? "bg-emerald-500 text-white hover:bg-emerald-600 cursor-pointer"
                 : "bg-emerald-50 text-emerald-600 cursor-default"
@@ -63,7 +69,7 @@ export default function TitleBar() {
               </>
             ) : (
               <>
-                <Loader2 size={12} className="animate-spin" /> Updating…{" "}
+                <Loader2 size={12} className="animate-spin" /> Updating...{" "}
                 {update.percent ? `${update.percent}%` : ""}
               </>
             )}

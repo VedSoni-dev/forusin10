@@ -3,5 +3,6 @@ dist
 dist-app
 *.log
 .DS_Store
-# Ollama binaries — downloaded at build time by scripts/download-ollama.mjs
+.claude/
+# Ollama binaries are downloaded at build time by scripts/download-ollama.mjs
 resources/ollama/
